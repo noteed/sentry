@@ -3,23 +3,23 @@
 {-# LANGUAGE RecordWildCards #-}
 module Main where
 
-import Control.Concurrent (threadDelay)
-import Control.Monad (forever)
-import Data.Configurator
-  ( autoConfig, autoReload, display
-  , subscribe, prefix, Worth(..))
+import Control.Applicative ((<$>))
+import Control.Concurrent.MVar
+import Data.IORef
 import Data.Version (showVersion)
 import Paths_sentry (version)
 import System.Console.CmdArgs.Implicit
+import System.Posix.Process (getProcessID)
 
 import Sentry.Process
+import Sentry.Types (Process(..), Sentry(..))
 
 main :: IO ()
 main = (processCmd =<<) $ cmdArgs $
   modes
-    [ cmdSpawn -- just to try
+    [ cmdStart
+    , cmdContinue
     , cmdRespawn -- the important stuff
-    , monitor -- just to try
     ]
   &= summary versionString
   &= program "sentry"
@@ -29,41 +29,51 @@ versionString =
   "Sentry " ++ showVersion version ++ " Copyright (c) 2012 Vo Minh Thu."
 
 data Cmd =
-    Spawn
+    Start
+  | Continue
   | Respawn
-  | Monitor
   deriving (Data, Typeable)
 
-cmdSpawn :: Cmd
-cmdSpawn = Spawn
-  &= help "Spawn a command once"
+cmdStart :: Cmd
+cmdStart = Start
+  &= help "Start Sentry."
   &= explicit
-  &= name "spawn"
+  &= name "start"
+
+cmdContinue :: Cmd
+cmdContinue = Continue
+  &= help ("Resume Sentry after a graceful exit or SIGHUP." ++
+    " This is normally not called explicitely from the command-line.")
+  &= explicit
+  &= name "continue"
 
 cmdRespawn :: Cmd
 cmdRespawn = Respawn
-  &= help "Spawn a command forever"
+  &= help "Spawn a command forever (currently hard-coded to `sleep 2`)."
   &= explicit
   &= name "respawn"
 
-monitor :: Cmd
-monitor = Monitor
-  &= help "Display modifications to sentry.conf."
-  &= explicit
-  &= name "monitor"
-
 processCmd :: Cmd -> IO ()
-processCmd Spawn{..} = do
-  spawn "ls" []
+processCmd Start{..} = do
+  state <- initializeState
+  stateRef <- newIORef state
+  m <- newEmptyMVar
+  pid <- fromIntegral <$> getProcessID :: IO Int
+  putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
+  waitHUP stateRef m
+
+processCmd Continue{..} = do
+  mstate <- readState
+  case mstate of
+    Nothing -> return ()
+    Just state@Sentry{..} -> do
+      putStrLn $ "Sentry reexec'd. Initially started at " ++
+        show sStartTime ++ " (Previously reexec'd at " ++
+        show sReexecTime ++ ")."
+      t <- getTime
+      stateRef <- newIORef state { sReexecTime = t }
+      m <- newEmptyMVar
+      waitHUP stateRef m
 
 processCmd Respawn{..} = do
   keepSpawned $ Process "main" "sleep" ["2"] 1000
-
-processCmd Monitor{..} = do
-  putStrLn "Sentry will report any change to `sentry.conf`. Hit Ctrl-C to exit."
-  (config, t) <- autoReload autoConfig [Required "sentry.conf"]
-  display config
-  subscribe config (prefix "processes") handler
-  forever $ do
-    threadDelay (5 * 1000 * 1000)
-  where handler name mvalue = print name >> print mvalue

@@ -12,9 +12,17 @@ build-type:          Simple
 
 library
   build-depends:       base == 4.*,
+                       bytestring == 0.9.*,
+                       cereal == 0.3.*,
+                       directory == 1.1.*,
+                       dyre == 0.8.*,
+                       filepath == 1.2.*,
                        process == 1.1.*,
-                       time == 1.1.*
-  exposed-modules:     Sentry.Process
+                       safecopy == 0.6.*,
+                       time == 1.1.*,
+                       unix == 2.4.*
+  exposed-modules:     Sentry.Process,
+                       Sentry.Types
   ghc-options:         -Wall
 
 executable sentry
@@ -22,6 +30,8 @@ executable sentry
   main-is:             sentry.hs
   build-depends:       base == 4.*,
                        cmdargs == 0.9.*,
-                       configurator == 0.2.*,
-                       sentry
+                       directory == 1.1.*,
+                       filepath == 1.2.*,
+                       sentry,
+                       unix == 2.4.*
   ghc-options:         -Wall
