@@ -35,3 +35,4 @@ executable sentry
                        sentry,
                        unix == 2.4.*
   ghc-options:         -Wall
+                       -threaded

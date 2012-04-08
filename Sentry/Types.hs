@@ -5,12 +5,24 @@ module Sentry.Types where
 import Data.SafeCopy
 import Data.Typeable
 
+-- | A process type is just a name for a specific command.
+type ProcessType = String
+
 -- | Process specification.
 data Process = Process
-  { pType :: String
-  , pCommand :: String
-  , pArguments :: [String]
-  , pDelay :: Int -- ^ dealy before re-starting a process, in milliseconds
+  { pType :: ProcessType -- ^ Process type.
+  , pCommand :: String -- ^ Command.
+  , pArguments :: [String] -- ^ Command arguments.
+  , pDelay :: Int -- ^ Dealy before re-starting a process, in milliseconds.
+  , pCount :: Int -- ^ Number of requested processes of this type.
+  }
+  deriving Typeable
+
+data MonitoredProcess = MonitoredProcess
+  { mProcess :: Process -- ^ Process specification.
+  , mHandles :: [Int] -- ^ List of process handles running the process
+  -- specification (Int is used instead of ProcessHandle so we can
+  -- save/restore them with SafeCopy).
   }
   deriving Typeable
 
@@ -19,7 +31,20 @@ data Process = Process
 data Sentry = Sentry
   { sStartTime :: Int -- ^ When the process was started.
   , sReexecTime :: Int -- ^ When the process was reexec'd for the last time. TODO use Maybe Int
+  , sProcesses :: [MonitoredProcess] -- ^ List of monitored processes.
   }
   deriving Typeable
 
-$(deriveSafeCopy 0 'base ''Sentry)
+deriveSafeCopy 0 'base ''Process
+deriveSafeCopy 0 'base ''MonitoredProcess
+deriveSafeCopy 0 'base ''Sentry
+
+-- | The possible commands the main Sentry thread can execute.
+data Command =
+    UpdateProcesses -- ^ Request to update the monitored processes list (e.g.
+                    -- because a process has exited or a process specification
+                    -- has been changed, added, or removed.
+  | ProcessExited ProcessType Int -- ^ A process has exited. Its type and its
+                                  -- ProcessHandle (as an Int) are given.
+  | Reexec -- ^ Re-exec the application, usually after a SIGHUP.
+  | Quit -- ^ Request the application to terminate, usually after SIGINT.

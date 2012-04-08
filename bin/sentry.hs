@@ -4,8 +4,6 @@
 module Main where
 
 import Control.Applicative ((<$>))
-import Control.Concurrent.MVar
-import Data.IORef
 import Data.Version (showVersion)
 import Paths_sentry (version)
 import System.Console.CmdArgs.Implicit
@@ -19,7 +17,6 @@ main = (processCmd =<<) $ cmdArgs $
   modes
     [ cmdStart
     , cmdContinue
-    , cmdRespawn -- the important stuff
     ]
   &= summary versionString
   &= program "sentry"
@@ -31,7 +28,6 @@ versionString =
 data Cmd =
     Start
   | Continue
-  | Respawn
   deriving (Data, Typeable)
 
 cmdStart :: Cmd
@@ -47,20 +43,11 @@ cmdContinue = Continue
   &= explicit
   &= name "continue"
 
-cmdRespawn :: Cmd
-cmdRespawn = Respawn
-  &= help "Spawn a command forever (currently hard-coded to `sleep 2`)."
-  &= explicit
-  &= name "respawn"
-
 processCmd :: Cmd -> IO ()
 processCmd Start{..} = do
-  state <- initializeState
-  stateRef <- newIORef state
-  m <- newEmptyMVar
   pid <- fromIntegral <$> getProcessID :: IO Int
   putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
-  waitHUP stateRef m
+  monitor processes
 
 processCmd Continue{..} = do
   mstate <- readState
@@ -71,9 +58,11 @@ processCmd Continue{..} = do
         show sStartTime ++ " (Previously reexec'd at " ++
         show sReexecTime ++ ")."
       t <- getTime
-      stateRef <- newIORef state { sReexecTime = t }
-      m <- newEmptyMVar
-      waitHUP stateRef m
+      let state' = state { sReexecTime = t }
+      continueMonitor state'
 
-processCmd Respawn{..} = do
-  keepSpawned $ Process "main" "sleep" ["2"] 1000
+processes :: [Process]
+processes =
+  [ Process "short" "sleep" ["2"] 1000 1
+  , Process "long" "sleep" ["10"] 1000 1
+  ]
