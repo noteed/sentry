@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Sentry.Types where
 
+import Data.Data (Data)
 import Data.SafeCopy
 import Data.Typeable
 
@@ -16,7 +17,9 @@ data Process = Process
   , pDelay :: Int -- ^ Dealy before re-starting a process, in milliseconds.
   , pCount :: Int -- ^ Number of requested processes of this type.
   }
-  deriving Typeable
+  deriving (Data, Typeable)
+  -- Data is only needed so we can have [Process]
+  -- inside the Sentry.Command.Start command.
 
 data MonitoredProcess = MonitoredProcess
   { mProcess :: Process -- ^ Process specification.
@@ -29,7 +32,8 @@ data MonitoredProcess = MonitoredProcess
 -- | The application state can be serialized and saved to disk then restored
 -- when the process is reexec'd.
 data Sentry = Sentry
-  { sStartTime :: Int -- ^ When the process was started.
+  { sExecutablePath :: FilePath -- ^ Original executable path.
+  , sStartTime :: Int -- ^ When the process was started.
   , sReexecTime :: Int -- ^ When the process was reexec'd for the last time. TODO use Maybe Int
   , sProcesses :: [MonitoredProcess] -- ^ List of monitored processes.
   }

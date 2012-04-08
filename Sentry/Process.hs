@@ -7,6 +7,7 @@ import Control.Concurrent.MVar
 import Control.Applicative ((<$>))
 import Control.Monad (replicateM)
 import qualified Data.ByteString as B
+import Data.Maybe (mapMaybe)
 import Data.Serialize (runGet, runPut)
 import Data.SafeCopy (safeGet, safePut)
 import Data.Time.Clock.POSIX(getPOSIXTime)
@@ -80,6 +81,8 @@ updateProcess chan p@MonitoredProcess{..} = do
       return p { mHandles = toKeep }
     LT -> do
       let n = pCount mProcess - length mHandles
+      putStrLn $ show n ++ " workers required for process type `"
+        ++ pType mProcess ++ "`."
       is <- replicateM n $ spawn chan  mProcess
       return p { mHandles = is ++ mHandles }
 
@@ -124,15 +127,44 @@ monitor processes = do
   writeChan chan UpdateProcesses
   processChan state chan
 
--- | Given a restored application state, continue the monitoring.
-continueMonitor :: Sentry -> IO ()
-continueMonitor state = do
+-- | Given a restored application state, and the new process specifications,
+-- continue the monitoring.
+continueMonitor :: Sentry -> [Process] -> IO ()
+continueMonitor state processes = do
   chan <- newChan
   setupHUP chan
   setupINT chan
-  mapM_ (followMonitoredProcess chan) (sProcesses state)
+  ps <- mapM (continueProcess processes) (sProcesses state)
+  let state' = state { sProcesses = mapMaybe id ps }
+  mapM_ (followMonitoredProcess chan) (sProcesses state')
   writeChan chan UpdateProcesses
-  processChan state chan
+  processChan state' chan
+
+continueProcess :: [Process] -> MonitoredProcess -> IO (Maybe MonitoredProcess)
+continueProcess processes MonitoredProcess{..} = do
+  case lookupProcess mProcess processes of
+    Just p -> return . Just $ MonitoredProcess p mHandles
+    Nothing -> do
+      putStrLn $ "Process type `" ++ pType mProcess ++ "` removed. Killing "
+        ++ "workers."
+      mapM_ (\i -> intToProcessHandle i >>= terminateProcess) mHandles
+      return Nothing
+
+-- | Try to find a matching process in the given list.
+lookupProcess :: Process -> [Process] -> Maybe Process
+lookupProcess process processes =
+  case filter (sameProcesses process) processes of
+    [p] -> Just p
+    [] -> Nothing
+    _ -> error "More than one process"
+    -- TODO `processes` must be a Map instead of a list.
+
+-- | Compare if two processes are equal, i.e. if they have
+-- same type, command and arguments.
+sameProcesses :: Process -> Process -> Bool
+sameProcesses p1 p2 = pType p1 == pType p2
+  && pCommand p1 == pCommand p2
+  && pArguments p1 == pArguments p2
 
 -- Inspired by the `executale-path` package, which implements
 -- a similar function for different OS.
@@ -159,16 +191,17 @@ getStatePath = do
 reexecute :: Sentry -> IO a
 reexecute state = do
   saveState state
-  path <- getExecutablePath
-  executeFile path False ["continue"] Nothing
+  executeFile (sExecutablePath state) False ["continue"] Nothing
 
 -- TODO move in another module
 -- | Create a initial application state from a list of process specifications.
 initializeState :: [Process] -> IO Sentry
 initializeState specs = do
+  path <- getExecutablePath
   t <- getTime
   return Sentry
-    { sStartTime = t
+    { sExecutablePath = path
+    , sStartTime = t
     , sReexecTime = t -- not really meaningful but doesn't matter
     , sProcesses = map (flip MonitoredProcess []) specs
     }

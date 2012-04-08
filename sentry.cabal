@@ -14,14 +14,15 @@ library
   build-depends:       base == 4.*,
                        bytestring == 0.9.*,
                        cereal == 0.3.*,
+                       cmdargs == 0.9.*,
                        directory == 1.1.*,
-                       dyre == 0.8.*,
                        filepath == 1.2.*,
                        process == 1.1.*,
                        safecopy == 0.6.*,
                        time == 1.1.*,
                        unix == 2.4.*
-  exposed-modules:     Sentry.Process,
+  exposed-modules:     Sentry.Command,
+                       Sentry.Process,
                        Sentry.Types
   ghc-options:         -Wall
 
@@ -29,7 +30,6 @@ executable sentry
   hs-source-dirs:      bin
   main-is:             sentry.hs
   build-depends:       base == 4.*,
-                       cmdargs == 0.9.*,
                        directory == 1.1.*,
                        filepath == 1.2.*,
                        sentry,
