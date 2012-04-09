@@ -20,8 +20,7 @@ Sentry is written in Haskell and is also configured in Haskell. The principle
 is to write a short script in `~/.sentry/conf/`. For instance a `dummy.hs`
 configuration would look like the following:
 
-    import Sentry.Command
-    import Sentry.Types
+    import Sentry
 
     main :: IO ()
     main = sentry
@@ -48,8 +47,6 @@ instruct Sentry to re-exec itself, using the new configuration.
   `sentry start -c dummy` instead of `~/.sentry/conf/dummy`. Default
   configuration could be `sentry.hs`.
 - Move things around (proper module organization).
-- The imports in the example above should be cleaner (i.e. only
-  `import Sentry`).
 - Properly use stdout/stderr.
 - Properly redirect monitored processes outputs.
 - Separate data types for save/restore (i.e. with SafeCopy instances) and

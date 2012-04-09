@@ -24,7 +24,8 @@ library
                        safecopy == 0.6.*,
                        time == 1.1.*,
                        unix == 2.4.*
-  exposed-modules:     Sentry.Command,
+  exposed-modules:     Sentry,
+                       Sentry.Command,
                        Sentry.Process,
                        Sentry.Types
   ghc-options:         -Wall

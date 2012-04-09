@@ -1,7 +1,6 @@
 module Main where
 
-import Sentry.Command
-import Sentry.Types
+import Sentry
 
 main :: IO ()
 main = sentry
