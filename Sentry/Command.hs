@@ -3,9 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Sentry.Command where
 
-import Control.Applicative ((<$>))
 import System.Console.CmdArgs.Implicit
-import System.Posix.Process (getProcessID)
 
 import Sentry.Process
 import Sentry.Types (Entry(..), Sentry(..))
@@ -16,6 +14,7 @@ sentry entries = (processCmd =<<) $ cmdArgs $
     [ cmdStart entries
     , cmdContinue entries
     , cmdCompile
+    , cmdReload
     ]
   &= summary versionString
   &= program "sentry"
@@ -29,6 +28,7 @@ data Cmd =
     Start { cmdEntries :: [Entry] }
   | Continue { cmdEntries :: [Entry] }
   | Compile
+  | Reload
   deriving (Data, Typeable)
 
 cmdStart :: [Entry] -> Cmd
@@ -54,10 +54,14 @@ cmdCompile = Compile
   &= explicit
   &= name "compile"
 
+cmdReload :: Cmd
+cmdReload = Reload
+  &= help "Instruct a running Sentry to reload itself by sending it a SIGHUP."
+  &= explicit
+  &= name "reload"
+
 processCmd :: Cmd -> IO ()
 processCmd Start{..} = do
-  pid <- fromIntegral <$> getProcessID :: IO Int
-  putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
   monitor cmdEntries
 
 processCmd Continue{..} = do
@@ -76,3 +80,7 @@ processCmd Compile{..} = do
   state <- initializeState []
   _ <- compile state
   return ()
+
+processCmd Reload{..} = do
+  state <- initializeState []
+  sendSIGHUP state

@@ -21,7 +21,8 @@ import System.IO (hClose, openFile, IOMode(..))
 import System.Locale (defaultTimeLocale)
 import System.Posix.Files (readSymbolicLink)
 import System.Posix.Process (executeFile, getProcessID)
-import System.Posix.Signals (installHandler, sigHUP, sigINT, Handler(..))
+import System.Posix.Signals (installHandler, sigHUP, sigINT, signalProcess
+  , Handler(..))
 import System.Process (createProcess, getProcessExitCode, proc
   , runProcess, terminateProcess, waitForProcess)
 import System.Process.Internals
@@ -132,6 +133,20 @@ processChan state@Sentry{..} chan = do
 monitor :: [Entry] -> IO ()
 monitor entries = do
   state <- initializeState $ colorize entries
+  home <- getHomeDirectory
+  let sentry = home </> ".sentry"
+      conf = sentry </> "conf"
+      binPath = sExecutablePath state
+      pidPath = binPath <.> "pid"
+
+  pid <- fromIntegral <$> getProcessID :: IO Int
+  if takeDirectory binPath /= conf
+    then putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
+    else do
+      putStrLn $ "Sentry started (PID: " ++ show pid ++ "saved in "
+        ++ pidPath ++ ")."
+      writeFile pidPath $ show pid
+
   chan <- newChan
   setupHUP chan
   setupINT chan
@@ -213,14 +228,13 @@ compile state = do
   home <- getHomeDirectory
   let sentry = home </> ".sentry"
       conf = sentry </> "conf"
-      self = sExecutablePath state
-      sourcePath = self <.> "hs"
-      errorPath = self <.> "error"
-      binPath = self
+      binPath = sExecutablePath state
+      sourcePath = binPath <.> "hs"
+      errorPath = binPath <.> "error"
 
   if takeDirectory binPath /= conf
     then do
-      putStrLn $ self ++ " is not under " ++ conf ++ "."
+      putStrLn $ binPath ++ " is not under " ++ conf ++ "."
       return False
     else do
       status <- bracket (openFile errorPath WriteMode) hClose $ \h -> do
@@ -240,6 +254,16 @@ compile state = do
           putStrLn $ "Problem encountered while compiling " ++ sourcePath ++ ":"
           putStrLn content
           return False
+
+sendSIGHUP :: Sentry -> IO ()
+sendSIGHUP state = do
+  home <- getHomeDirectory
+  let binPath = sExecutablePath state
+      pidPath = binPath <.> "pid"
+      -- TODO all these xxxPath could be function on Sentry.
+  -- TODO better error messages.
+  content <- readFile pidPath
+  signalProcess sigHUP $ fromIntegral $ (read content :: Int)
 
 -- TODO move in another module
 -- | Create a initial application state from a list of process specifications.

@@ -47,8 +47,6 @@ instruct Sentry to re-exec itself, using the new configuration.
 - Let Sentry start a configuration instead of manually run it. I.e.
   `sentry start -c dummy` instead of `~/.sentry/conf/dummy`. Default
   configuration could be `sentry.hs`.
-- `sentry restart`: `sentry start` should save its PID to ~/.sentry/sentry.pid
-  so `sentry restart` can conveniently `kill -HUP <pid>`.
 - Move things around (proper module organization).
 - The imports in the example above should be cleaner (i.e. only
   `import Sentry`).
