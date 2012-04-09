@@ -45,7 +45,6 @@ instruct Sentry to re-exec itself, using the new configuration.
   `sentry start -c dummy` instead of `~/.sentry/conf/dummy`. Default
   configuration could be `sentry.hs`.
 - Move things around (proper module organization).
-- Properly use stdout/stderr.
 - Properly redirect monitored processes outputs.
 - Separate data types for save/restore (i.e. with SafeCopy instances) and
   data types actually used at runtime.

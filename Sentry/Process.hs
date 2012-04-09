@@ -6,7 +6,7 @@ import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Applicative ((<$>))
 import Control.Exception (bracket)
-import Control.Monad (replicateM)
+import Control.Monad (replicateM, when)
 import qualified Data.ByteString as B
 import Data.List (foldl')
 import Data.Maybe (isJust, mapMaybe)
@@ -18,14 +18,17 @@ import System.Console.ANSI (setSGRCode, ColorIntensity(..), Color(..)
 import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
 import System.Exit (ExitCode(..))
 import System.FilePath ((<.>), (</>), takeDirectory)
-import System.IO (hClose, openFile, IOMode(..))
+import System.IO (hClose, hGetLine, hIsEOF, hReady, hSetBuffering, openFile
+  , stderr, stdout
+  , BufferMode(..), IOMode(..))
 import System.Locale (defaultTimeLocale)
 import System.Posix.Files (readSymbolicLink)
 import System.Posix.Process (executeFile, getProcessID)
 import System.Posix.Signals (installHandler, sigHUP, sigINT, signalProcess
   , Handler(..))
 import System.Process (createProcess, getProcessExitCode, proc
-  , runProcess, terminateProcess, waitForProcess)
+  , runProcess, std_out, terminateProcess, waitForProcess
+  , StdStream(..))
 import System.Process.Internals
 import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
@@ -35,12 +38,29 @@ import Sentry.Types
 -- is used by the monitoring thread when the process exits.
 spawn :: Chan Command -> Entry -> IO Int -- TODO newtype ProcessID
 spawn chan p@Entry{..} = do
-  (_, _, _, h) <- createProcess (proc eCommand eArguments)
+  (_, Just hout, Just herr, h) <- createProcess (proc eCommand eArguments)
+    { std_out = CreatePipe, std_err = CreatePipe }
   i <- processHandleToInt h
   t1 <- getTime
   logP p i $ "Started at " ++ show t1 ++ "."
   _ <- forkIO $ waitProcess chan p h
+  _ <- forkIO $ pipeToStdout p i hout herr
   return i
+
+-- | Copy two handles to stout. It is better if the handles are line-buffered.
+pipeToStdout p i h1 h2 = do
+  eof1 <- hIsEOF h1
+  eof2 <- hIsEOF h2
+  ready1 <- if eof1 then return False else hReady h1
+  ready2 <- if eof2 then return False else hReady h2
+  when ready1 $ do
+    l <- hGetLine h1
+    logP p i l
+  when ready2 $ do
+    l <- hGetLine h2
+    logP p i l
+  when (not eof1 || not eof2) $ do
+    pipeToStdout p i h1 h2
 
 -- | Wait for a process to complete. When it happens, it will notify the main
 -- thread using the provided channel.
@@ -135,6 +155,8 @@ processChan state@Sentry{..} chan = do
 -- | Given a list of process specifications, start to monitor them.
 monitor :: [Entry] -> IO ()
 monitor entries = do
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
   state <- initializeState entries
   home <- getHomeDirectory
   let sentry = home </> ".sentry"
@@ -334,6 +356,7 @@ colorized Entry{..} str =
     Just c ->
       setSGRCode [SetColor Foreground Dull c] ++  pad str ++ setSGRCode []
 
+-- TODO non-hardcoded constant
 pad :: String -> String
 pad s = s ++ replicate (25 - length s) ' '
 
