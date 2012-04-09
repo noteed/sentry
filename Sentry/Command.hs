@@ -15,6 +15,7 @@ sentry entries = (processCmd =<<) $ cmdArgs $
   modes
     [ cmdStart entries
     , cmdContinue entries
+    , cmdCompile
     ]
   &= summary versionString
   &= program "sentry"
@@ -27,6 +28,7 @@ versionString =
 data Cmd =
     Start { cmdEntries :: [Entry] }
   | Continue { cmdEntries :: [Entry] }
+  | Compile
   deriving (Data, Typeable)
 
 cmdStart :: [Entry] -> Cmd
@@ -46,6 +48,12 @@ cmdContinue entries = Continue
     &= explicit
     &= name "continue"
 
+cmdCompile :: Cmd
+cmdCompile = Compile
+  &= help "Compile the configuration file, replacing this executable."
+  &= explicit
+  &= name "compile"
+
 processCmd :: Cmd -> IO ()
 processCmd Start{..} = do
   pid <- fromIntegral <$> getProcessID :: IO Int
@@ -63,3 +71,8 @@ processCmd Continue{..} = do
       t <- getTime
       let state' = state { sReexecTime = t }
       continueMonitor state' cmdEntries
+
+processCmd Compile{..} = do
+  state <- initializeState []
+  _ <- compile state
+  return ()

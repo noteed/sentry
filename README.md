@@ -1,10 +1,18 @@
-# sentry - Simple process monitoring
+# Sentry - Simple process monitoring
 
 This project is in early stage.
 
 Sentry is a process monitoring tool written and configured in Haskell. Its aim
 is to keep running programs. For each configured program (called an entry in
 its configuration) , multiple processes can be started.
+
+## Install
+
+The development version can be installed by cloning the repository and using
+cabal:
+
+    > git clone git://github.com/noteed/sentry.git
+    > cd sentry && cabal install
 
 ## Usage
 
@@ -36,11 +44,16 @@ instruct Sentry to re-exec itself, using the new configuration.
 - Newly added entries are not taken into account on re-exec (but deleted and
   altered entries are).
 - Dynamically resize the number of processes for a specifif entry.
-- Sentry should compile itself its configuration.
 - Let Sentry start a configuration instead of manually run it. I.e.
   `sentry start -c dummy` instead of `~/.sentry/conf/dummy`. Default
   configuration could be `sentry.hs`.
 - `sentry restart`: `sentry start` should save its PID to ~/.sentry/sentry.pid
   so `sentry restart` can conveniently `kill -HUP <pid>`.
 - Move things around (proper module organization).
+- The imports in the example above should be cleaner (i.e. only
+  `import Sentry`).
+- Properly use stdout/stderr.
+- Properly redirect monitored processes outputs.
+- Separate data types for save/restore (i.e. with SafeCopy instances) and
+  data types actually used at runtime.
 - Tag a 0.1 version and push it to Hackage.

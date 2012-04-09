@@ -5,6 +5,7 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Applicative ((<$>))
+import Control.Exception (bracket)
 import Control.Monad (replicateM)
 import qualified Data.ByteString as B
 import Data.Maybe (mapMaybe)
@@ -14,13 +15,15 @@ import Data.Time.Clock.POSIX(getPOSIXTime)
 import System.Console.ANSI (setSGRCode, ColorIntensity(..), Color(..)
   , ConsoleLayer(..), SGR(..))
 import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
-import System.FilePath ((</>))
+import System.Exit (ExitCode(..))
+import System.FilePath ((<.>), (</>), takeDirectory)
+import System.IO (hClose, openFile, IOMode(..))
 import System.Locale (defaultTimeLocale)
 import System.Posix.Files (readSymbolicLink)
 import System.Posix.Process (executeFile, getProcessID)
 import System.Posix.Signals (installHandler, sigHUP, sigINT, Handler(..))
 import System.Process (createProcess, getProcessExitCode, proc
-  , terminateProcess, waitForProcess)
+  , runProcess, terminateProcess, waitForProcess)
 import System.Process.Internals
 import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
@@ -109,7 +112,15 @@ processChan state@Sentry{..} chan = do
       ps' <- mapM (updateProcess chan) ps
       let state' = state { sProcesses = ps' }
       processChan state' chan
-    Reexec -> reexecute state
+    Reexec -> do
+      -- TODO Compile/Reexec can be splitted:
+      -- First start a thread waiting while compiling.
+      -- Second push Reexec on the chan.
+      -- TODO compile only if the file has been modified.
+      b <- compile state
+      if b
+        then reexecute state
+        else processChan state chan
     Quit -> do
       putStrLn "Bye."
       -- TODO SIGTERM should be replaced by SIGINT and a small
@@ -195,6 +206,40 @@ reexecute :: Sentry -> IO a
 reexecute state = do
   saveState state
   executeFile (sExecutablePath state) False ["continue"] Nothing
+
+-- | Compile itself.
+compile :: Sentry -> IO Bool
+compile state = do
+  home <- getHomeDirectory
+  let sentry = home </> ".sentry"
+      conf = sentry </> "conf"
+      self = sExecutablePath state
+      sourcePath = self <.> "hs"
+      errorPath = self <.> "error"
+      binPath = self
+
+  if takeDirectory binPath /= conf
+    then do
+      putStrLn $ self ++ " is not under " ++ conf ++ "."
+      return False
+    else do
+      status <- bracket (openFile errorPath WriteMode) hClose $ \h -> do
+        p <- runProcess "ghc"
+          [ "--make", sourcePath, "-fforce-recomp", "-v0", "-threaded",
+            "-o", binPath]
+          (Just conf)
+          Nothing Nothing Nothing (Just h)
+        waitForProcess p
+
+      if status == ExitSuccess
+        then do
+          putStrLn $ sourcePath ++ " successfully compiled."
+          return True
+        else do
+          content <- readFile errorPath
+          putStrLn $ "Problem encountered while compiling " ++ sourcePath ++ ":"
+          putStrLn content
+          return False
 
 -- TODO move in another module
 -- | Create a initial application state from a list of process specifications.
