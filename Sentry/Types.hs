@@ -11,17 +11,17 @@ import System.Console.ANSI (Color(..))
 -- | A process type is just a name for a specific command.
 type ProcessType = String
 
--- | Process specification.
-data Process = Process
-  { pType :: ProcessType -- ^ Process type.
-  , pCommand :: String -- ^ Command.
-  , pArguments :: [String] -- ^ Command arguments.
-  , pDelay :: Int -- ^ Dealy before re-starting a process, in milliseconds.
-  , pCount :: Int -- ^ Number of requested processes of this type.
-  , pColor :: Maybe Color
+-- | An entry in the configuration, i.e. a process specification.
+data Entry = Entry
+  { eType :: ProcessType -- ^ Process type.
+  , eCommand :: String -- ^ Command.
+  , eArguments :: [String] -- ^ Command arguments.
+  , eDelay :: Int -- ^ Dealy before re-starting a process, in milliseconds.
+  , eCount :: Int -- ^ Number of requested processes of this type.
+  , eColor :: Maybe Color
   }
   deriving (Data, Typeable)
-  -- Data is only needed so we can have [Process]
+  -- Data is only needed so we can have [Entry]
   -- inside the Sentry.Command.Start command.
 
 deriving instance Data Color
@@ -29,12 +29,19 @@ deriving instance Typeable Color
 deriveSafeCopy 0 'base ''Color
 
 -- | Simple helper to specify a process type.
-process :: ProcessType -> String -> [String] -> Int -> Int -> Process
-process typ cmd args delay count =
-  Process typ cmd args delay count Nothing
+-- For instance consider the following entry:
+--   `entry "dummy" "sleep" ["3"] 1000 1`
+-- It creates an entry with type "dummy". The type is an arbitrary string that
+-- will appear in the logs. It is also used to dynamically change the
+-- configuration by refering to its type.  It then specifies that the command
+-- `sleep 3` will be kept running, restarting it after 1000 milliseconds if
+-- necessary. The last value (1) is the number of instances to run.
+entry :: ProcessType -> String -> [String] -> Int -> Int -> Entry
+entry typ cmd args delay count =
+  Entry typ cmd args delay count Nothing
 
-data MonitoredProcess = MonitoredProcess
-  { mProcess :: Process -- ^ Process specification.
+data MonitoredEntry = MonitoredEntry
+  { mEntry :: Entry -- ^ Process specification.
   , mHandles :: [Int] -- ^ List of process handles running the process
   -- specification (Int is used instead of ProcessHandle so we can
   -- save/restore them with SafeCopy).
@@ -47,12 +54,12 @@ data Sentry = Sentry
   { sExecutablePath :: FilePath -- ^ Original executable path.
   , sStartTime :: Int -- ^ When the process was started.
   , sReexecTime :: Int -- ^ When the process was reexec'd for the last time. TODO use Maybe Int
-  , sProcesses :: [MonitoredProcess] -- ^ List of monitored processes.
+  , sProcesses :: [MonitoredEntry] -- ^ List of monitored processes.
   }
   deriving Typeable
 
-deriveSafeCopy 0 'base ''Process
-deriveSafeCopy 0 'base ''MonitoredProcess
+deriveSafeCopy 0 'base ''Entry
+deriveSafeCopy 0 'base ''MonitoredEntry
 deriveSafeCopy 0 'base ''Sentry
 
 -- | The possible commands the main Sentry thread can execute.

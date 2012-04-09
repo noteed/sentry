@@ -28,9 +28,9 @@ import Sentry.Types
 
 -- | Create a new process, monitored by its own thread. The provided channel
 -- is used by the monitoring thread when the process exits.
-spawn :: Chan Command -> Process -> IO Int -- TODO newtype ProcessID
-spawn chan p@Process{..} = do
-  (_, _, _, h) <- createProcess (proc pCommand pArguments)
+spawn :: Chan Command -> Entry -> IO Int -- TODO newtype ProcessID
+spawn chan p@Entry{..} = do
+  (_, _, _, h) <- createProcess (proc eCommand eArguments)
   i <- processHandleToInt h
   t1 <- getTime
   logP p i $ "Started at " ++ show t1 ++ "."
@@ -39,58 +39,58 @@ spawn chan p@Process{..} = do
 
 -- | Wait for a process to complete. When it happens, it will notify the main
 -- thread using the provided channel.
-waitProcess :: Chan Command -> Process -> ProcessHandle -> IO ()
-waitProcess chan p@Process{..} h = do
+waitProcess :: Chan Command -> Entry -> ProcessHandle -> IO ()
+waitProcess chan p@Entry{..} h = do
   i <- processHandleToInt h
   exitCode <- waitForProcess h
   t <- getTime
   logP p i $ "Exited at " ++ show t ++ " with " ++ show exitCode ++ "."
-  threadDelay $ pDelay * 1000
-  writeChan chan $ ProcessExited pType i
+  threadDelay $ eDelay * 1000
+  writeChan chan $ ProcessExited eType i
 
 -- | Continue to wait for monitored processes (normally used after the
 -- application has re-exec'd itself).
-followMonitoredProcess :: Chan Command -> MonitoredProcess -> IO ()
-followMonitoredProcess chan MonitoredProcess{..} = do
-  mapM_ (follow chan mProcess) mHandles
+followMonitoredProcess :: Chan Command -> MonitoredEntry -> IO ()
+followMonitoredProcess chan MonitoredEntry{..} = do
+  mapM_ (follow chan mEntry) mHandles
 
 -- | Continue to wait for a process.
-follow :: Chan Command -> Process -> Int -> IO ()
-follow chan p@Process{..} i = do
+follow :: Chan Command -> Entry -> Int -> IO ()
+follow chan p@Entry{..} i = do
   h <- intToProcessHandle i
   -- If it returns Nothing, then we have to continue waiting for the process
   -- (the handle is valid) otherwise the process has completed.
   mCode <- getProcessExitCode h
   case mCode of
-    Just _ -> writeChan chan $ ProcessExited pType i
+    Just _ -> writeChan chan $ ProcessExited eType i
     Nothing -> do
       _ <- forkIO $ waitProcess chan p h
       return ()
 
 -- | Given a monitored process, adjust the number of worker processes to match
 -- the possibly updated spec.
-updateProcess :: Chan Command -> MonitoredProcess -> IO MonitoredProcess
-updateProcess chan p@MonitoredProcess{..} = do
-  case length mHandles `compare` pCount mProcess of
+updateProcess :: Chan Command -> MonitoredEntry -> IO MonitoredEntry
+updateProcess chan p@MonitoredEntry{..} = do
+  case length mHandles `compare` eCount mEntry of
     EQ -> return p
     GT -> do
-      let n = length mHandles - pCount mProcess
+      let n = length mHandles - eCount mEntry
           toTerminate = take n mHandles
           toKeep = drop n mHandles
-      -- logP mProcess $ show n ++ " less workers required."
-      hs <- mapM intToProcessHandle toTerminate -- TODO make sure pCount always >= 0
+      -- logP mEntry $ show n ++ " less workers required."
+      hs <- mapM intToProcessHandle toTerminate -- TODO make sure eCount always >= 0
       mapM_ terminateProcess hs -- TODO is SIGTERM really what we want?
       return p { mHandles = toKeep }
     LT -> do
-      let n = pCount mProcess - length mHandles
-      is <- replicateM n $ spawn chan  mProcess
+      let n = eCount mEntry - length mHandles
+      is <- replicateM n $ spawn chan  mEntry
       return p { mHandles = is ++ mHandles }
 
 -- | Remove the process handle from the monitor process (if they match,
 -- otherwise do nothing).
-exitProcess :: ProcessType -> Int -> MonitoredProcess -> MonitoredProcess
-exitProcess typ i p@MonitoredProcess{..} =
-  if pType mProcess == typ
+exitProcess :: ProcessType -> Int -> MonitoredEntry -> MonitoredEntry
+exitProcess typ i p@MonitoredEntry{..} =
+  if eType mEntry == typ
   then p { mHandles = filter (/= i) mHandles }
   else p
 
@@ -118,9 +118,9 @@ processChan state@Sentry{..} chan = do
         terminateProcess) . mHandles) sProcesses
 
 -- | Given a list of process specifications, start to monitor them.
-monitor :: [Process] -> IO ()
-monitor processes = do
-  state <- initializeState $ colorize processes
+monitor :: [Entry] -> IO ()
+monitor entries = do
+  state <- initializeState $ colorize entries
   chan <- newChan
   setupHUP chan
   setupINT chan
@@ -129,43 +129,43 @@ monitor processes = do
 
 -- | Given a restored application state, and the new process specifications,
 -- continue the monitoring.
-continueMonitor :: Sentry -> [Process] -> IO ()
-continueMonitor state processes = do
+continueMonitor :: Sentry -> [Entry] -> IO ()
+continueMonitor state entries = do
   chan <- newChan
   setupHUP chan
   setupINT chan
-  ps <- mapM (continueProcess $ colorize processes) (sProcesses state)
+  ps <- mapM (continueProcess $ colorize entries) (sProcesses state)
   let state' = state { sProcesses = mapMaybe id ps }
   mapM_ (followMonitoredProcess chan) (sProcesses state')
   writeChan chan UpdateProcesses
   processChan state' chan
 
 -- TODO newly added specifications are not actually added.
-continueProcess :: [Process] -> MonitoredProcess -> IO (Maybe MonitoredProcess)
-continueProcess processes MonitoredProcess{..} = do
-  case lookupProcess mProcess processes of
-    Just p -> return . Just $ MonitoredProcess p mHandles
+continueProcess :: [Entry] -> MonitoredEntry -> IO (Maybe MonitoredEntry)
+continueProcess entries MonitoredEntry{..} = do
+  case lookupProcess mEntry entries of
+    Just p -> return . Just $ MonitoredEntry p mHandles
     Nothing -> do
-      putStrLn $ "Process type `" ++ pType mProcess ++ "` removed. Killing "
+      putStrLn $ "Process type `" ++ eType mEntry ++ "` removed. Killing "
         ++ "workers."
       mapM_ (\i -> intToProcessHandle i >>= terminateProcess) mHandles
       return Nothing
 
 -- | Try to find a matching process in the given list.
-lookupProcess :: Process -> [Process] -> Maybe Process
-lookupProcess p processes =
-  case filter (sameProcesses p) processes of
+lookupProcess :: Entry -> [Entry] -> Maybe Entry
+lookupProcess p entries =
+  case filter (sameEntries p) entries of
     [p'] -> Just p'
     [] -> Nothing
     _ -> error "More than one process"
-    -- TODO `processes` must be a Map instead of a list.
+    -- TODO `entries` must be a Map instead of a list.
 
--- | Compare if two processes are equal, i.e. if they have
+-- | Compare if two entries are equal, i.e. if they have
 -- same type, command and arguments.
-sameProcesses :: Process -> Process -> Bool
-sameProcesses p1 p2 = pType p1 == pType p2
-  && pCommand p1 == pCommand p2
-  && pArguments p1 == pArguments p2
+sameEntries :: Entry -> Entry -> Bool
+sameEntries p1 p2 = eType p1 == eType p2
+  && eCommand p1 == eCommand p2
+  && eArguments p1 == eArguments p2
 
 -- Inspired by the `executale-path` package, which implements
 -- a similar function for different OS.
@@ -196,7 +196,7 @@ reexecute state = do
 
 -- TODO move in another module
 -- | Create a initial application state from a list of process specifications.
-initializeState :: [Process] -> IO Sentry
+initializeState :: [Entry] -> IO Sentry
 initializeState specs = do
   path <- getExecutablePath
   t <- getTime
@@ -204,7 +204,7 @@ initializeState specs = do
     { sExecutablePath = path
     , sStartTime = t
     , sReexecTime = t -- not really meaningful but doesn't matter
-    , sProcesses = map (flip MonitoredProcess []) specs
+    , sProcesses = map (flip MonitoredEntry []) specs
     }
 
 -- | Save the application state to disk (normally done just before re-exec'ing
@@ -235,14 +235,14 @@ readState = do
         "` doesn't exist. Sentry can't continue."
       return Nothing
 
-colorize :: [Process] -> [Process]
-colorize processes = zipWith f processes $ cycle $ map Just
+colorize :: [Entry] -> [Entry]
+colorize entries = zipWith f entries $ cycle $ map Just
   [Red, Blue, Green, Yellow, Magenta, Cyan, White]
-  where f p c = p { pColor = c }
+  where f p c = p { eColor = c }
 
-colorized :: Process -> String -> String
-colorized Process{..} str =
-  case pColor of
+colorized :: Entry -> String -> String
+colorized Entry{..} str =
+  case eColor of
     Nothing -> pad str
     Just c ->
       setSGRCode [SetColor Foreground Dull c] ++  pad str ++ setSGRCode []
@@ -250,10 +250,10 @@ colorized Process{..} str =
 pad :: String -> String
 pad s = s ++ replicate (25 - length s) ' '
 
-logP :: Process -> Int -> String -> IO ()
-logP p@Process{..} i s = do
+logP :: Entry -> Int -> String -> IO ()
+logP p@Entry{..} i s = do
   ts <- getTimeString
-  putStrLn $ colorized p (ts ++ " " ++ pType ++ "." ++ show i) ++ s
+  putStrLn $ colorized p (ts ++ " " ++ eType ++ "." ++ show i) ++ s
 
 -- | Install the handleHUP function as a SIGHUP handler.
 setupHUP :: Chan Command -> IO ()

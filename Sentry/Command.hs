@@ -8,13 +8,13 @@ import System.Console.CmdArgs.Implicit
 import System.Posix.Process (getProcessID)
 
 import Sentry.Process
-import Sentry.Types (Process(..), Sentry(..))
+import Sentry.Types (Entry(..), Sentry(..))
 
-sentry :: [Process] -> IO ()
-sentry processes = (processCmd =<<) $ cmdArgs $
+sentry :: [Entry] -> IO ()
+sentry entries = (processCmd =<<) $ cmdArgs $
   modes
-    [ cmdStart processes
-    , cmdContinue processes
+    [ cmdStart entries
+    , cmdContinue entries
     ]
   &= summary versionString
   &= program "sentry"
@@ -25,21 +25,21 @@ versionString =
   -- TODO add the version.
 
 data Cmd =
-    Start { cmdProcesses :: [Process] }
-  | Continue { cmdProcesses :: [Process] }
+    Start { cmdEntries :: [Entry] }
+  | Continue { cmdEntries :: [Entry] }
   deriving (Data, Typeable)
 
-cmdStart :: [Process] -> Cmd
-cmdStart processes = Start
-  { cmdProcesses = processes
+cmdStart :: [Entry] -> Cmd
+cmdStart entries = Start
+  { cmdEntries = entries
     &= ignore
   } &= help "Start Sentry."
     &= explicit
     &= name "start"
 
-cmdContinue :: [Process] -> Cmd
-cmdContinue processes = Continue
-  { cmdProcesses = processes
+cmdContinue :: [Entry] -> Cmd
+cmdContinue entries = Continue
+  { cmdEntries = entries
     &= ignore
   } &= help ("Resume Sentry after a graceful exit or SIGHUP." ++
       " This is normally not called explicitely from the command-line.")
@@ -50,7 +50,7 @@ processCmd :: Cmd -> IO ()
 processCmd Start{..} = do
   pid <- fromIntegral <$> getProcessID :: IO Int
   putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
-  monitor cmdProcesses
+  monitor cmdEntries
 
 processCmd Continue{..} = do
   mstate <- readState
@@ -62,4 +62,4 @@ processCmd Continue{..} = do
         show sReexecTime ++ ")."
       t <- getTime
       let state' = state { sReexecTime = t }
-      continueMonitor state' cmdProcesses
+      continueMonitor state' cmdEntries
