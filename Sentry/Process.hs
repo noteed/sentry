@@ -11,14 +11,18 @@ import Data.Maybe (mapMaybe)
 import Data.Serialize (runGet, runPut)
 import Data.SafeCopy (safeGet, safePut)
 import Data.Time.Clock.POSIX(getPOSIXTime)
+import System.Console.ANSI (setSGRCode, ColorIntensity(..), Color(..)
+  , ConsoleLayer(..), SGR(..))
 import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
 import System.FilePath ((</>))
+import System.Locale (defaultTimeLocale)
 import System.Posix.Files (readSymbolicLink)
 import System.Posix.Process (executeFile, getProcessID)
 import System.Posix.Signals (installHandler, sigHUP, sigINT, Handler(..))
 import System.Process (createProcess, getProcessExitCode, proc
   , terminateProcess, waitForProcess)
 import System.Process.Internals
+import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
 import Sentry.Types
 
@@ -29,19 +33,18 @@ spawn chan p@Process{..} = do
   (_, _, _, h) <- createProcess (proc pCommand pArguments)
   i <- processHandleToInt h
   t1 <- getTime
-  putStrLn $ "`" ++ pType ++ "` started at " ++ show t1 ++ "."
+  logP p i $ "Started at " ++ show t1 ++ "."
   _ <- forkIO $ waitProcess chan p h
   return i
 
 -- | Wait for a process to complete. When it happens, it will notify the main
 -- thread using the provided channel.
 waitProcess :: Chan Command -> Process -> ProcessHandle -> IO ()
-waitProcess chan Process{..} h = do
+waitProcess chan p@Process{..} h = do
   i <- processHandleToInt h
   exitCode <- waitForProcess h
   t <- getTime
-  putStrLn $ "`" ++ pType ++ "` exited at " ++ show t ++ " with "
-    ++ show exitCode ++ "."
+  logP p i $ "Exited at " ++ show t ++ " with " ++ show exitCode ++ "."
   threadDelay $ pDelay * 1000
   writeChan chan $ ProcessExited pType i
 
@@ -69,20 +72,17 @@ follow chan p@Process{..} i = do
 updateProcess :: Chan Command -> MonitoredProcess -> IO MonitoredProcess
 updateProcess chan p@MonitoredProcess{..} = do
   case length mHandles `compare` pCount mProcess of
-    EQ -> return p 
+    EQ -> return p
     GT -> do
       let n = length mHandles - pCount mProcess
           toTerminate = take n mHandles
           toKeep = drop n mHandles
-      putStrLn $ show n ++ " less workers required for process type `"
-        ++ pType mProcess ++ "`."
+      -- logP mProcess $ show n ++ " less workers required."
       hs <- mapM intToProcessHandle toTerminate -- TODO make sure pCount always >= 0
       mapM_ terminateProcess hs -- TODO is SIGTERM really what we want?
       return p { mHandles = toKeep }
     LT -> do
       let n = pCount mProcess - length mHandles
-      putStrLn $ show n ++ " workers required for process type `"
-        ++ pType mProcess ++ "`."
       is <- replicateM n $ spawn chan  mProcess
       return p { mHandles = is ++ mHandles }
 
@@ -120,7 +120,7 @@ processChan state@Sentry{..} chan = do
 -- | Given a list of process specifications, start to monitor them.
 monitor :: [Process] -> IO ()
 monitor processes = do
-  state <- initializeState processes
+  state <- initializeState $ colorize processes
   chan <- newChan
   setupHUP chan
   setupINT chan
@@ -134,12 +134,13 @@ continueMonitor state processes = do
   chan <- newChan
   setupHUP chan
   setupINT chan
-  ps <- mapM (continueProcess processes) (sProcesses state)
+  ps <- mapM (continueProcess $ colorize processes) (sProcesses state)
   let state' = state { sProcesses = mapMaybe id ps }
   mapM_ (followMonitoredProcess chan) (sProcesses state')
   writeChan chan UpdateProcesses
   processChan state' chan
 
+-- TODO newly added specifications are not actually added.
 continueProcess :: [Process] -> MonitoredProcess -> IO (Maybe MonitoredProcess)
 continueProcess processes MonitoredProcess{..} = do
   case lookupProcess mProcess processes of
@@ -152,9 +153,9 @@ continueProcess processes MonitoredProcess{..} = do
 
 -- | Try to find a matching process in the given list.
 lookupProcess :: Process -> [Process] -> Maybe Process
-lookupProcess process processes =
-  case filter (sameProcesses process) processes of
-    [p] -> Just p
+lookupProcess p processes =
+  case filter (sameProcesses p) processes of
+    [p'] -> Just p'
     [] -> Nothing
     _ -> error "More than one process"
     -- TODO `processes` must be a Map instead of a list.
@@ -234,6 +235,26 @@ readState = do
         "` doesn't exist. Sentry can't continue."
       return Nothing
 
+colorize :: [Process] -> [Process]
+colorize processes = zipWith f processes $ cycle $ map Just
+  [Red, Blue, Green, Yellow, Magenta, Cyan, White]
+  where f p c = p { pColor = c }
+
+colorized :: Process -> String -> String
+colorized Process{..} str =
+  case pColor of
+    Nothing -> pad str
+    Just c ->
+      setSGRCode [SetColor Foreground Dull c] ++  pad str ++ setSGRCode []
+
+pad :: String -> String
+pad s = s ++ replicate (25 - length s) ' '
+
+logP :: Process -> Int -> String -> IO ()
+logP p@Process{..} i s = do
+  ts <- getTimeString
+  putStrLn $ colorized p (ts ++ " " ++ pType ++ "." ++ show i) ++ s
+
 -- | Install the handleHUP function as a SIGHUP handler.
 setupHUP :: Chan Command -> IO ()
 setupHUP chan = do
@@ -273,3 +294,9 @@ intToProcessHandle i = do
 -- | Convenience function to get a Posix time as an Int.
 getTime :: IO Int
 getTime = floor <$> getPOSIXTime
+
+getTimeString :: IO String
+getTimeString = do
+  tm <- getClockTime
+  ct <- toCalendarTime tm
+  return $ formatCalendarTime defaultTimeLocale "%H:%M:%S" ct

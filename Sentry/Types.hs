@@ -1,10 +1,12 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Sentry.Types where
 
 import Data.Data (Data)
 import Data.SafeCopy
 import Data.Typeable
+import System.Console.ANSI (Color(..))
 
 -- | A process type is just a name for a specific command.
 type ProcessType = String
@@ -16,10 +18,20 @@ data Process = Process
   , pArguments :: [String] -- ^ Command arguments.
   , pDelay :: Int -- ^ Dealy before re-starting a process, in milliseconds.
   , pCount :: Int -- ^ Number of requested processes of this type.
+  , pColor :: Maybe Color
   }
   deriving (Data, Typeable)
   -- Data is only needed so we can have [Process]
   -- inside the Sentry.Command.Start command.
+
+deriving instance Data Color
+deriving instance Typeable Color
+deriveSafeCopy 0 'base ''Color
+
+-- | Simple helper to specify a process type.
+process :: ProcessType -> String -> [String] -> Int -> Int -> Process
+process typ cmd args delay count =
+  Process typ cmd args delay count Nothing
 
 data MonitoredProcess = MonitoredProcess
   { mProcess :: Process -- ^ Process specification.

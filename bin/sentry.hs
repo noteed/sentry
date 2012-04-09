@@ -5,7 +5,7 @@ import Sentry.Types
 
 main :: IO ()
 main = sentry
-  [ Process "short" "sleep" ["2"] 1000 1
-  , Process "long" "sleep" ["10"] 1000 1
-  , Process "verylong" "sleep" ["30"] 1000 1
+  [ process "short" "sleep" ["2"] 1000 1
+  , process "long" "sleep" ["10"] 1000 2
+  , process "verylong" "sleep" ["30"] 1000 1
   ]

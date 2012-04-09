@@ -12,11 +12,14 @@ build-type:          Simple
 
 library
   build-depends:       base == 4.*,
+                       ansi-terminal == 0.5.*,
                        bytestring == 0.9.*,
                        cereal == 0.3.*,
                        cmdargs == 0.9.*,
                        directory == 1.1.*,
                        filepath == 1.2.*,
+                       old-locale == 1.0.*,
+                       old-time == 1.0.*,
                        process == 1.1.*,
                        safecopy == 0.6.*,
                        time == 1.1.*,
