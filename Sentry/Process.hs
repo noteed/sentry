@@ -18,17 +18,16 @@ import System.Console.ANSI (setSGRCode, ColorIntensity(..), Color(..)
 import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
 import System.Exit (ExitCode(..))
 import System.FilePath ((<.>), (</>), takeDirectory)
-import System.IO (hClose, hGetLine, hIsEOF, hReady, hSetBuffering, openFile
-  , stderr, stdout
-  , BufferMode(..), IOMode(..))
+import System.IO (hClose, hGetLine, hIsEOF, hPutStrLn, hReady, hSetBuffering
+  , openFile, stderr, stdout
+  , BufferMode(..), IOMode(..), Handle)
 import System.Locale (defaultTimeLocale)
 import System.Posix.Files (readSymbolicLink)
 import System.Posix.Process (executeFile, getProcessID)
 import System.Posix.Signals (installHandler, sigHUP, sigINT, signalProcess
   , Handler(..))
 import System.Process (createProcess, getProcessExitCode, proc
-  , runProcess, std_out, terminateProcess, waitForProcess
-  , StdStream(..))
+  , runProcess, std_out, terminateProcess, waitForProcess)
 import System.Process.Internals
 import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
@@ -48,6 +47,7 @@ spawn chan p@Entry{..} = do
   return i
 
 -- | Copy two handles to stout. It is better if the handles are line-buffered.
+pipeToStdout :: Entry -> Int -> Handle -> Handle -> IO ()
 pipeToStdout p i h1 h2 = do
   eof1 <- hIsEOF h1
   eof2 <- hIsEOF h2
@@ -273,7 +273,7 @@ compile state = do
 
   if takeDirectory binPath /= conf
     then do
-      putStrLn $ binPath ++ " is not under " ++ conf ++ "."
+      hPutStrLn stderr $ binPath ++ " is not under " ++ conf ++ "."
       return False
     else do
       status <- bracket (openFile errorPath WriteMode) hClose $ \h -> do
@@ -290,8 +290,8 @@ compile state = do
           return True
         else do
           content <- readFile errorPath
-          putStrLn $ "Problem encountered while compiling " ++ sourcePath ++ ":"
-          putStrLn content
+          hPutStrLn stderr $ "Problem encountered while compiling " ++ sourcePath ++ ":"
+          hPutStrLn stderr content
           return False
 
 sendSIGHUP :: Sentry -> IO ()
@@ -334,14 +334,14 @@ readState = do
     then do
       content <- B.readFile statePath
       case runGet safeGet content of
-        Left err -> do
-          putStrLn $ "Can't parse existing state." ++
-            " Sentry can't continue. (Error was: " ++ err ++ ".)"
+        Left err -> do --TODO use err
+          hPutStrLn stderr $ "Can't parse existing state." ++
+            " Sentry continues with its current state."
           return Nothing
         Right a -> return $ Just a
     else do
-      putStrLn $ "The file `" ++ statePath ++
-        "` doesn't exist. Sentry can't continue."
+      hPutStrLn stderr $ "The file `" ++ statePath ++
+        "` doesn't exist. Sentry continues with its current state."
       return Nothing
 
 colorize :: [MonitoredEntry] -> [MonitoredEntry]
