@@ -40,8 +40,6 @@ instruct Sentry to re-exec itself, using the new configuration.
 
 ## TODO
 
-- Newly added entries are not taken into account on re-exec (but deleted and
-  altered entries are).
 - Dynamically resize the number of processes for a specifif entry.
 - Let Sentry start a configuration instead of manually run it. I.e.
   `sentry start -c dummy` instead of `~/.sentry/conf/dummy`. Default

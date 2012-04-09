@@ -8,7 +8,8 @@ import Control.Applicative ((<$>))
 import Control.Exception (bracket)
 import Control.Monad (replicateM)
 import qualified Data.ByteString as B
-import Data.Maybe (mapMaybe)
+import Data.List (foldl')
+import Data.Maybe (isJust, mapMaybe)
 import Data.Serialize (runGet, runPut)
 import Data.SafeCopy (safeGet, safePut)
 import Data.Time.Clock.POSIX(getPOSIXTime)
@@ -117,6 +118,8 @@ processChan state@Sentry{..} chan = do
       -- TODO Compile/Reexec can be splitted:
       -- First start a thread waiting while compiling.
       -- Second push Reexec on the chan.
+      -- Or simply let the `sentry reload` command do it
+      -- before issuing the SIGHUP signal.
       -- TODO compile only if the file has been modified.
       b <- compile state
       if b
@@ -132,7 +135,7 @@ processChan state@Sentry{..} chan = do
 -- | Given a list of process specifications, start to monitor them.
 monitor :: [Entry] -> IO ()
 monitor entries = do
-  state <- initializeState $ colorize entries
+  state <- initializeState entries
   home <- getHomeDirectory
   let sentry = home </> ".sentry"
       conf = sentry </> "conf"
@@ -160,13 +163,15 @@ continueMonitor state entries = do
   chan <- newChan
   setupHUP chan
   setupINT chan
-  ps <- mapM (continueProcess $ colorize entries) (sProcesses state)
-  let state' = state { sProcesses = mapMaybe id ps }
+  ps <- mapM (continueProcess entries) (sProcesses state)
+  let state' = state
+        { sProcesses = colorize $ addEntries (mapMaybe id ps) entries }
   mapM_ (followMonitoredProcess chan) (sProcesses state')
   writeChan chan UpdateProcesses
   processChan state' chan
 
--- TODO newly added specifications are not actually added.
+-- | Given a list of "new" entries, either modify the monitored entry if it
+-- must be updated or return Nothing if it must be deleted.
 continueProcess :: [Entry] -> MonitoredEntry -> IO (Maybe MonitoredEntry)
 continueProcess entries MonitoredEntry{..} = do
   case lookupProcess mEntry entries of
@@ -176,6 +181,18 @@ continueProcess entries MonitoredEntry{..} = do
         ++ "workers."
       mapM_ (\i -> intToProcessHandle i >>= terminateProcess) mHandles
       return Nothing
+
+-- | Add entries to a list of monitored entries if they are not already in
+-- there.
+addEntries :: [MonitoredEntry] -> [Entry] -> [MonitoredEntry]
+addEntries es e = foldl' addEntry es e
+
+-- | Add an entry to a list of monitored entries if it is not already in
+-- there.
+addEntry :: [MonitoredEntry] -> Entry -> [MonitoredEntry]
+-- Order doesn't matter as it will be a Map anyway.
+addEntry es e = if present then es else MonitoredEntry e [] : es
+  where present = isJust $ lookupProcess e $ map mEntry es
 
 -- | Try to find a matching process in the given list.
 lookupProcess :: Entry -> [Entry] -> Maybe Entry
@@ -257,7 +274,6 @@ compile state = do
 
 sendSIGHUP :: Sentry -> IO ()
 sendSIGHUP state = do
-  home <- getHomeDirectory
   let binPath = sExecutablePath state
       pidPath = binPath <.> "pid"
       -- TODO all these xxxPath could be function on Sentry.
@@ -275,7 +291,7 @@ initializeState specs = do
     { sExecutablePath = path
     , sStartTime = t
     , sReexecTime = t -- not really meaningful but doesn't matter
-    , sProcesses = map (flip MonitoredEntry []) specs
+    , sProcesses = colorize $ map (flip MonitoredEntry []) specs
     }
 
 -- | Save the application state to disk (normally done just before re-exec'ing
@@ -306,10 +322,10 @@ readState = do
         "` doesn't exist. Sentry can't continue."
       return Nothing
 
-colorize :: [Entry] -> [Entry]
+colorize :: [MonitoredEntry] -> [MonitoredEntry]
 colorize entries = zipWith f entries $ cycle $ map Just
   [Red, Blue, Green, Yellow, Magenta, Cyan, White]
-  where f p c = p { eColor = c }
+  where f e c = e { mEntry = (mEntry e) { eColor = c } }
 
 colorized :: Entry -> String -> String
 colorized Entry{..} str =
