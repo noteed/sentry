@@ -180,7 +180,9 @@ ensureStateDirectory :: IO ()
 ensureStateDirectory = do
   home <- getHomeDirectory
   let dir = home </> ".sentry"
+      conf = dir </> "conf"
   createDirectoryIfMissing False dir
+  createDirectoryIfMissing False conf
 
 -- | Return the path where to save the application state.
 getStatePath :: IO FilePath
