@@ -1,6 +1,17 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+-- |
+-- Module      : Sentry.Types
+-- Copyright   : (c) 2012 Vo Minh Thu,
+--
+-- License     : BSD-style
+-- Maintainer  : thu@hypered.be
+-- Stability   : experimental
+-- Portability : GHC
+--
+-- This module contains the different data types and type synonyms used in
+-- Sentry.
 module Sentry.Types where
 
 import Data.Data (Data)
@@ -28,14 +39,17 @@ deriving instance Data Color
 deriving instance Typeable Color
 deriveSafeCopy 0 'base ''Color
 
--- | Simple helper to specify a process type.
--- For instance consider the following entry:
---   `entry "dummy" "sleep" ["3"] 1000 1`
--- It creates an entry with type "dummy". The type is an arbitrary string that
+-- | 'entry' is used to define configuration entries to be passed to 'sentry'.
+-- A sample entry looks like
+--
+-- > entry "dummy" "sleep" ["3"] 1000 1
+--
+-- It creates an entry with type \"dummy\". The type is an arbitrary string that
 -- will appear in the logs. It is also used to dynamically change the
 -- configuration by refering to its type.  It then specifies that the command
 -- `sleep 3` will be kept running, restarting it after 1000 milliseconds if
--- necessary. The last value (1) is the number of instances to run.
+-- necessary. The last value is the number of instances to run, in the example
+-- just one.
 entry :: ProcessType -> String -> [String] -> Int -> Int -> Entry
 entry typ cmd args delay count =
   Entry typ cmd args delay count Nothing

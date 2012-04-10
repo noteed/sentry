@@ -8,6 +8,9 @@ import System.Console.CmdArgs.Implicit
 import Sentry.Process
 import Sentry.Types (Entry(..), Sentry(..))
 
+-- | 'sentry' provides the main function of a Sentry configuration file. In
+-- particular it provides the command-line interface. It takes a list of
+-- configuration entries as its sole argument.
 sentry :: [Entry] -> IO ()
 sentry entries = (processCmd =<<) $ cmdArgs $
   modes

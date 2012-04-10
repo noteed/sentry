@@ -168,7 +168,7 @@ monitor entries = do
   if takeDirectory binPath /= conf
     then putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
     else do
-      putStrLn $ "Sentry started (PID: " ++ show pid ++ "saved in "
+      putStrLn $ "Sentry started (PID: " ++ show pid ++ " saved in "
         ++ pidPath ++ ")."
       writeFile pidPath $ show pid
 

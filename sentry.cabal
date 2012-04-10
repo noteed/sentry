@@ -1,13 +1,21 @@
 name:                sentry
 version:             0.0.0
 Cabal-Version:       >= 1.8
-synopsis:            Simple process monitoring
-description:         Simple process monitoring
+synopsis:            Process monitoring tool written and configured in Haskell
+description:
+  Sentry is a process monitoring tool written and configured in Haskell. Its
+  aim is to keep running programs. For each configured program, multiple
+  processes can be started. Currently Sentry runs on Linux only.
+  .
+  Under normal circumstance, the "Sentry" module is enough to write
+  configuration files.
 category:            Network
 license:             BSD3
 license-file:        LICENSE
 author:              Vo Minh Thu
 maintainer:          noteed@gmail.com
+homepage:            https://github.com/noteed/sentry
+bug-reports:         https://github.com/noteed/sentry/issues
 build-type:          Simple
 
 library

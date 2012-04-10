@@ -6,10 +6,12 @@ Sentry is a process monitoring tool written and configured in Haskell. Its aim
 is to keep running programs. For each configured program (called an entry in
 its configuration) , multiple processes can be started.
 
+Currently Sentry runs on Linux only.
+
 ## Install
 
-The development version can be installed by cloning the repository and using
-cabal:
+The development version can be installed by cloning the Git repository and
+using cabal:
 
     > git clone git://github.com/noteed/sentry.git
     > cd sentry && cabal install
@@ -17,7 +19,7 @@ cabal:
 ## Usage
 
 Sentry is written in Haskell and is also configured in Haskell. The principle
-is to write a short script in `~/.sentry/conf/`. For instance a `dummy.hs`
+is to write a short script in `~/.sentry/conf/`. For instance a `sample.hs`
 configuration would look like the following:
 
     import Sentry
@@ -27,24 +29,64 @@ configuration would look like the following:
       [ entry "dummy" "sleep" ["4"] 1000 1
       ]
 
-You can then compile `dummy.hs` like this:
+`"dummy"` is the entry name, also called the process type. `"sleep"` and
+`["4"]` is the command that need to be run (and kept running), together with
+its arguments. The `1000` value specifies how long in milliseconds Sentry has
+to wait before restarting the command when it dies. Finally `1` is the number
+of processes you want to run that particular process type. You can then compile
+`sample.hs` and obtain a `sample` binary like this:
 
-    > ghc --make -threaded dummy.hs
+    > ghc --make -threaded sample.hs
 
 Start your Sentry with:
 
-    > ~/.sentry/conf/dummy
+    > ~/.sentry/conf/sample start
 
-Recompiling a configuration can be done while Sentry is running. A SIGHUP will
-instruct Sentry to re-exec itself, using the new configuration.
+Sentry will save its PID to `sample.pid` and start running the "dummy" entry:
+
+    Sentry started (PID: 1511s aved in /home/thu/.sentry/conf/sample.pid).
+    20:17:51 dummy.1514      Started at 1334081871.
+    20:17:55 dummy.1514      Exited at 1334081875 with ExitSuccess.
+    20:17:56 dummy.1516      Started at 1334081876.
+    20:18:00 dummy.1516      Exited at 1334081880 with ExitSuccess.
+    ^CBye.
+    >
+
+Whenever `sleep` exits, Sentry will run it again, and again.
+
+Recompiling a configuration (i.e. `sample.hs` in the example) can be done while
+Sentry is running. A SIGHUP will instruct Sentry to re-exec itself, using the
+new configuration. The command (while Sentry is already running)
+
+    > ~/.sentry/conf/sample reload
+
+will just do that:
+
+    > .sentry/conf/sample start
+    Sentry started (PID: 1530saved in /home/thu/.sentry/conf/sample.pid).
+    20:32:01 dummy.1536      Started at 1334082721.
+    20:32:05 dummy.1536      Exited at 1334082725 with ExitSuccess.
+    /home/thu/.sentry/conf/sample.hs successfully compiled.
+    Sentry reexec'd. Initially started at 1334082711 (Previously reexec'd at 1334082711).
+    20:32:08 dummy.1550      Started at 1334082728.
+    20:32:12 dummy.1550      Exited at 1334082732 with ExitSuccess.
+    ^CBye.
+    >
+
+## Documentation
+
+This `README.md` file should be a good starting point. Additional information
+can be found in the Haddock pages. Those pages are currently available from
+http://hypered.be/haddock/sentry.
 
 ## TODO
 
-- Dynamically resize the number of processes for a specifif entry.
+- Dynamically resize the number of processes for a specific entry.
 - Let Sentry start a configuration instead of manually run it. I.e.
-  `sentry start -c dummy` instead of `~/.sentry/conf/dummy`. Default
+  `sentry start -c sample` instead of `~/.sentry/conf/sample`. Default
   configuration could be `sentry.hs`.
 - Move things around (proper module organization).
 - Separate data types for save/restore (i.e. with SafeCopy instances) and
   data types actually used at runtime.
+- Build on 7.0 and 7.4
 - Tag a 0.1 version and push it to Hackage.
