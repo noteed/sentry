@@ -1,5 +1,5 @@
 name:                sentry
-version:             0.0.0
+version:             0.1.0
 Cabal-Version:       >= 1.8
 synopsis:            Process monitoring tool written and configured in Haskell
 description:
@@ -17,6 +17,10 @@ maintainer:          noteed@gmail.com
 homepage:            https://github.com/noteed/sentry
 bug-reports:         https://github.com/noteed/sentry/issues
 build-type:          Simple
+
+source-repository head
+  type: git
+  location: https://github.com/noteed/sentry
 
 library
   build-depends:       base == 4.*,
@@ -38,21 +42,21 @@ library
                        Sentry.Types
   ghc-options:         -Wall
 
--- executable sentry
---   hs-source-dirs:      bin
---   main-is:             sentry.hs
---   build-depends:       base == 4.*,
---                        directory == 1.1.*,
---                        filepath == 1.2.*,
---                        sentry,
---                        unix == 2.4.*
---   ghc-options:         -Wall
---                        -threaded
--- 
--- executable sentry-sleep
---   hs-source-dirs:      bin
---   main-is:             sentry-sleep.hs
---   build-depends:       base == 4.*
---   ghc-options:         -Wall
---                        -threaded
---   buildable: True
+executable sentry
+  hs-source-dirs:      bin
+  main-is:             sentry.hs
+  build-depends:       base == 4.*,
+                       directory == 1.1.*,
+                       filepath == 1.2.*,
+                       sentry,
+                       unix == 2.4.*
+  ghc-options:         -Wall
+                       -threaded
+
+executable sentry-sleep
+  hs-source-dirs:      bin
+  main-is:             sentry-sleep.hs
+  build-depends:       base == 4.*
+  ghc-options:         -Wall
+                       -threaded
+  buildable: True
