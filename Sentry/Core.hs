@@ -1,15 +1,45 @@
 {-# LANGUAGE RecordWildCards #-}
-module Sentry.Process where
+-- |
+-- Module      : Sentry.Core
+-- Copyright   : (c) 2012 Vo Minh Thu,
+--
+-- License     : BSD-style
+-- Maintainer  : thu@hypered.be
+-- Stability   : experimental
+-- Portability : GHC
+--
+-- This module is Sentry's core implementation: state initialization, process
+-- spawning and monitoring.
+module Sentry.Core
+  (
+  -- * Processes
+    spawn
+  , follow
+  , terminate
+  , updateProcess
+  , removeProcess
+  -- * Application state
+  , initializeState
+  , saveState
+  , readState
+  -- * Main entry points
+  , startMonitor
+  , continueMonitor
+  , sendSIGHUP
+  , compile
+  , reexecute
+  ) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Applicative ((<$>))
 import Control.Exception (bracket)
-import Control.Monad (replicateM, when)
+import Control.Monad (forM_, replicateM, when)
 import qualified Data.ByteString as B
+import Data.Either (partitionEithers)
 import Data.List (foldl')
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (isJust)
 import Data.Serialize (runGet, runPut)
 import Data.SafeCopy (safeGet, safePut)
 import Data.Time.Clock.POSIX(getPOSIXTime)
@@ -33,64 +63,47 @@ import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
 import Sentry.Types
 
--- | Create a new process, monitored by its own thread. The provided channel
--- is used by the monitoring thread when the process exits.
+-- | Create a new process, monitored by a new thread. The provided channel
+-- is used by the monitoring thread when the process exits to notify the
+-- main thread.
 spawn :: Chan Command -> Entry -> IO Int -- TODO newtype ProcessID
-spawn chan p@Entry{..} = do
-  (_, Just hout, Just herr, h) <- createProcess (proc eCommand eArguments)
+spawn chan e@Entry{..} = do
+  (_, Just hout, Just herr, h) <- createProcess $
+    (proc eCommand eArguments)
     { std_out = CreatePipe, std_err = CreatePipe }
   i <- processHandleToInt h
   t1 <- getTime
-  logP p i $ "Started at " ++ show t1 ++ "."
-  _ <- forkIO $ waitProcess chan p h
-  _ <- forkIO $ pipeToStdout p i hout herr
+  logP e i $ "Started at " ++ show t1 ++ "."
+  follow chan e i
+  _ <- forkIO $ pipeToStdout e i hout herr
   return i
 
--- | Copy two handles to stout. It is better if the handles are line-buffered.
-pipeToStdout :: Entry -> Int -> Handle -> Handle -> IO ()
-pipeToStdout p i h1 h2 = do
-  eof1 <- hIsEOF h1
-  eof2 <- hIsEOF h2
-  ready1 <- if eof1 then return False else hReady h1
-  ready2 <- if eof2 then return False else hReady h2
-  when ready1 $ do
-    l <- hGetLine h1
-    logP p i l
-  when ready2 $ do
-    l <- hGetLine h2
-    logP p i l
-  when (not eof1 || not eof2) $ do
-    pipeToStdout p i h1 h2
-
 -- | Wait for a process to complete. When it happens, it will notify the main
--- thread using the provided channel.
-waitProcess :: Chan Command -> Entry -> ProcessHandle -> IO ()
-waitProcess chan p@Entry{..} h = do
-  i <- processHandleToInt h
-  exitCode <- waitForProcess h
-  t <- getTime
-  logP p i $ "Exited at " ++ show t ++ " with " ++ show exitCode ++ "."
-  threadDelay $ eDelay * 1000
-  writeChan chan $ ProcessExited eType i
-
--- | Continue to wait for monitored processes (normally used after the
--- application has re-exec'd itself).
-followMonitoredProcess :: Chan Command -> MonitoredEntry -> IO ()
-followMonitoredProcess chan MonitoredEntry{..} = do
-  mapM_ (follow chan mEntry) mHandles
-
--- | Continue to wait for a process.
+-- thread using the provided channel. Return without blocking.
 follow :: Chan Command -> Entry -> Int -> IO ()
 follow chan p@Entry{..} i = do
-  h <- intToProcessHandle i
-  -- If it returns Nothing, then we have to continue waiting for the process
-  -- (the handle is valid) otherwise the process has completed.
-  mCode <- getProcessExitCode h
-  case mCode of
-    Just _ -> writeChan chan $ ProcessExited eType i
-    Nothing -> do
-      _ <- forkIO $ waitProcess chan p h
-      return ()
+  _ <- forkIO $ do
+    -- After a re-exec, waitForProcess will make an error if the
+    -- child has already exited, so use getProcessExitCode at first.
+    -- If it returns Nothing, then we have to continue waiting for t
+    -- (the handle is valid) otherwise the process has completed.
+    h <- intToProcessHandle i
+    mCode <- getProcessExitCode h
+    case mCode of
+      Just _ -> writeChan chan $ ProcessExited eType i
+      Nothing -> do
+        exitCode <- waitForProcess h
+        t <- getTime
+        logP p i $ "Exited at " ++ show t ++ " with " ++ show exitCode ++ "."
+        threadDelay $ eDelay * 1000
+        writeChan chan $ ProcessExited eType i
+  return ()
+
+terminate :: MonitoredEntry -> IO ()
+terminate MonitoredEntry{..} = do
+  putStrLn $ "Process type `" ++ eType mEntry ++ "` removed. Killing "
+    ++ "workers."
+  mapM_ (\i -> intToProcessHandle i >>= terminateProcess) mHandles
 
 -- | Given a monitored process, adjust the number of worker processes to match
 -- the possibly updated spec.
@@ -108,16 +121,71 @@ updateProcess chan p@MonitoredEntry{..} = do
       return p { mHandles = toKeep }
     LT -> do
       let n = eCount mEntry - length mHandles
-      is <- replicateM n $ spawn chan  mEntry
+      is <- replicateM n $ spawn chan mEntry
       return p { mHandles = is ++ mHandles }
 
--- | Remove the process handle from the monitor process (if they match,
+-- | Remove the process handle from the monitored process (if they match,
 -- otherwise do nothing).
-exitProcess :: ProcessType -> Int -> MonitoredEntry -> MonitoredEntry
-exitProcess typ i p@MonitoredEntry{..} =
+removeProcess :: ProcessType -> Int -> MonitoredEntry -> MonitoredEntry
+removeProcess typ i p@MonitoredEntry{..} =
   if eType mEntry == typ
   then p { mHandles = filter (/= i) mHandles }
   else p
+
+-- | Given a list of process specifications, start to monitor them.
+startMonitor :: [Entry] -> IO ()
+startMonitor entries = do
+  state <- initializeState entries
+
+  home <- getHomeDirectory
+  let sentry = home </> ".sentry"
+      conf = sentry </> "conf"
+      binPath = sExecutablePath state
+      pidPath = binPath <.> "pid"
+
+  pid <- fromIntegral <$> getProcessID :: IO Int
+  if takeDirectory binPath /= conf
+    then putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
+    else do
+      putStrLn $ "Sentry started (PID: " ++ show pid ++ " saved in "
+        ++ pidPath ++ ")."
+      writeFile pidPath $ show pid
+
+  monitor state
+
+-- | Given new process specifications, continue the monitoring.
+continueMonitor :: [Entry] -> IO ()
+continueMonitor entries = do
+  mstate <- readState
+  case mstate of
+    Nothing -> return ()
+    Just state@Sentry{..} -> do
+      putStrLn $ "Sentry reexec'd. Initially started at " ++
+        show sStartTime ++ maybe "." (\r -> " (Previously reexec'd at " ++
+        show r ++ ").") sReexecTime
+      t <- getTime
+      let (walkingDeads, kept) = partitionEithers $
+            map (continueProcess entries) sProcesses
+          state' = state
+            { sProcesses = addEntries kept entries
+            , sReexecTime = Just t }
+      mapM_ terminate walkingDeads
+      monitor state'
+
+-- | Monitor the processes from the given application state.
+monitor :: Sentry -> IO ()
+monitor state = do
+  let state' = state { sProcesses = colorize $ sProcesses state }
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
+  chan <- newChan
+  setupHUP chan
+  setupINT chan
+  -- follow existing handles, if any (after a re-exec there can be some).
+  forM_ (sProcesses state') $
+    \p -> mapM_ (follow chan $ mEntry p) $ mHandles p
+  writeChan chan UpdateProcesses
+  processChan state' chan
 
 -- | Process the command received on the main channel. This acts as a main
 -- event loop.
@@ -130,7 +198,7 @@ processChan state@Sentry{..} chan = do
       let state' = state { sProcesses = ps }
       processChan state' chan
     ProcessExited typ i -> do
-      let ps = map (exitProcess typ i) sProcesses
+      let ps = map (removeProcess typ i) sProcesses
       ps' <- mapM (updateProcess chan) ps
       let state' = state { sProcesses = ps' }
       processChan state' chan
@@ -151,115 +219,6 @@ processChan state@Sentry{..} chan = do
       -- waiting period?
       mapM_ (mapM_ (\i -> intToProcessHandle i >>=
         terminateProcess) . mHandles) sProcesses
-
--- | Given a list of process specifications, start to monitor them.
-monitor :: [Entry] -> IO ()
-monitor entries = do
-  hSetBuffering stdout LineBuffering
-  hSetBuffering stderr LineBuffering
-  state <- initializeState entries
-  home <- getHomeDirectory
-  let sentry = home </> ".sentry"
-      conf = sentry </> "conf"
-      binPath = sExecutablePath state
-      pidPath = binPath <.> "pid"
-
-  pid <- fromIntegral <$> getProcessID :: IO Int
-  if takeDirectory binPath /= conf
-    then putStrLn $ "Sentry started (PID: " ++ show pid ++ ")."
-    else do
-      putStrLn $ "Sentry started (PID: " ++ show pid ++ " saved in "
-        ++ pidPath ++ ")."
-      writeFile pidPath $ show pid
-
-  chan <- newChan
-  setupHUP chan
-  setupINT chan
-  writeChan chan UpdateProcesses
-  processChan state chan
-
--- | Given a restored application state, and the new process specifications,
--- continue the monitoring.
-continueMonitor :: Sentry -> [Entry] -> IO ()
-continueMonitor state entries = do
-  chan <- newChan
-  setupHUP chan
-  setupINT chan
-  ps <- mapM (continueProcess entries) (sProcesses state)
-  let state' = state
-        { sProcesses = colorize $ addEntries (mapMaybe id ps) entries }
-  mapM_ (followMonitoredProcess chan) (sProcesses state')
-  writeChan chan UpdateProcesses
-  processChan state' chan
-
--- | Given a list of "new" entries, either modify the monitored entry if it
--- must be updated or return Nothing if it must be deleted.
-continueProcess :: [Entry] -> MonitoredEntry -> IO (Maybe MonitoredEntry)
-continueProcess entries MonitoredEntry{..} = do
-  case lookupProcess mEntry entries of
-    Just p -> return . Just $ MonitoredEntry p mHandles
-    Nothing -> do
-      putStrLn $ "Process type `" ++ eType mEntry ++ "` removed. Killing "
-        ++ "workers."
-      mapM_ (\i -> intToProcessHandle i >>= terminateProcess) mHandles
-      return Nothing
-
--- | Add entries to a list of monitored entries if they are not already in
--- there.
-addEntries :: [MonitoredEntry] -> [Entry] -> [MonitoredEntry]
-addEntries es e = foldl' addEntry es e
-
--- | Add an entry to a list of monitored entries if it is not already in
--- there.
-addEntry :: [MonitoredEntry] -> Entry -> [MonitoredEntry]
--- Order doesn't matter as it will be a Map anyway.
-addEntry es e = if present then es else MonitoredEntry e [] : es
-  where present = isJust $ lookupProcess e $ map mEntry es
-
--- | Try to find a matching process in the given list.
-lookupProcess :: Entry -> [Entry] -> Maybe Entry
-lookupProcess p entries =
-  case filter (sameEntries p) entries of
-    [p'] -> Just p'
-    [] -> Nothing
-    _ -> error "More than one process"
-    -- TODO `entries` must be a Map instead of a list.
-
--- | Compare if two entries are equal, i.e. if they have
--- same type, command and arguments.
-sameEntries :: Entry -> Entry -> Bool
-sameEntries p1 p2 = eType p1 == eType p2
-  && eCommand p1 == eCommand p2
-  && eArguments p1 == eArguments p2
-
--- Inspired by the `executale-path` package, which implements
--- a similar function for different OS.
-getExecutablePath :: IO FilePath
-getExecutablePath = do
-  pid <- fromIntegral <$> getProcessID :: IO Int
-  path <- readSymbolicLink $ "/proc/" ++ show pid ++ "/exe"
-  return path
-
--- | Make sure the directory where the application state is saved exists.
-ensureStateDirectory :: IO ()
-ensureStateDirectory = do
-  home <- getHomeDirectory
-  let dir = home </> ".sentry"
-      conf = dir </> "conf"
-  createDirectoryIfMissing False dir
-  createDirectoryIfMissing False conf
-
--- | Return the path where to save the application state.
-getStatePath :: IO FilePath
-getStatePath = do
-  home <- getHomeDirectory
-  return $ home </> ".sentry" </> "sentry.state"
-
--- | Save the application state then re-exec itself (calling `sentry continue`).
-reexecute :: Sentry -> IO a
-reexecute state = do
-  saveState state
-  executeFile (sExecutablePath state) False ["continue"] Nothing
 
 -- | Compile itself.
 compile :: Sentry -> IO Bool
@@ -294,6 +253,13 @@ compile state = do
           hPutStrLn stderr content
           return False
 
+-- | Save the application state then re-exec itself (calling `sentry continue`).
+reexecute :: Sentry -> IO a
+reexecute state = do
+  saveState state
+  executeFile (sExecutablePath state) False ["continue"] Nothing
+
+-- | Send a @SIGHUP@ signal to a running Sentry.
 sendSIGHUP :: Sentry -> IO ()
 sendSIGHUP state = do
   let binPath = sExecutablePath state
@@ -303,7 +269,33 @@ sendSIGHUP state = do
   content <- readFile pidPath
   signalProcess sigHUP $ fromIntegral $ (read content :: Int)
 
--- TODO move in another module
+------------------------------------------------------------------------------
+-- State
+------------------------------------------------------------------------------
+
+-- | Return the path where to save the application state.
+getStatePath :: IO FilePath
+getStatePath = do
+  home <- getHomeDirectory
+  return $ home </> ".sentry" </> "sentry.state"
+
+-- Inspired by the `executale-path` package, which implements
+-- a similar function for different OS.
+getExecutablePath :: IO FilePath
+getExecutablePath = do
+  pid <- fromIntegral <$> getProcessID :: IO Int
+  path <- readSymbolicLink $ "/proc/" ++ show pid ++ "/exe"
+  return path
+
+-- | Make sure the directory where the application state is saved exists.
+ensureStateDirectory :: IO ()
+ensureStateDirectory = do
+  home <- getHomeDirectory
+  let dir = home </> ".sentry"
+      conf = dir </> "conf"
+  createDirectoryIfMissing False dir
+  createDirectoryIfMissing False conf
+
 -- | Create a initial application state from a list of process specifications.
 initializeState :: [Entry] -> IO Sentry
 initializeState specs = do
@@ -312,8 +304,8 @@ initializeState specs = do
   return Sentry
     { sExecutablePath = path
     , sStartTime = t
-    , sReexecTime = t -- not really meaningful but doesn't matter
-    , sProcesses = colorize $ map (flip MonitoredEntry []) specs
+    , sReexecTime = Nothing
+    , sProcesses = map (flip MonitoredEntry []) specs
     }
 
 -- | Save the application state to disk (normally done just before re-exec'ing
@@ -334,15 +326,59 @@ readState = do
     then do
       content <- B.readFile statePath
       case runGet safeGet content of
-        Left err -> do --TODO use err
+        Left err -> do
           hPutStrLn stderr $ "Can't parse existing state." ++
-            " Sentry continues with its current state."
+            " Sentry continues with its current state." ++
+            " The error was: " ++ err
           return Nothing
         Right a -> return $ Just a
     else do
       hPutStrLn stderr $ "The file `" ++ statePath ++
         "` doesn't exist. Sentry continues with its current state."
       return Nothing
+
+-- | Given a list of "new" entries, either modify the monitored entry if it
+-- must be updated (and return @Right@) or return @Left@ if it must be
+-- deleted. @Left@ is used instead of @Nothing@ so the process handles can
+-- be terminated if necessary.
+continueProcess :: [Entry] -> MonitoredEntry ->
+  Either MonitoredEntry MonitoredEntry
+continueProcess entries m@MonitoredEntry{..} = do
+  case lookupProcess mEntry entries of
+    Just p -> Right $ MonitoredEntry p mHandles
+    Nothing -> Left m
+
+-- | Add entries to a list of monitored entries if they are not already in
+-- there.
+addEntries :: [MonitoredEntry] -> [Entry] -> [MonitoredEntry]
+addEntries es e = foldl' addEntry es e
+
+-- | Add an entry to a list of monitored entries if it is not already in
+-- there.
+addEntry :: [MonitoredEntry] -> Entry -> [MonitoredEntry]
+-- Order doesn't matter as it will be a Map anyway.
+addEntry es e = if present then es else MonitoredEntry e [] : es
+  where present = isJust $ lookupProcess e $ map mEntry es
+
+-- | Try to find a matching process in the given list.
+lookupProcess :: Entry -> [Entry] -> Maybe Entry
+lookupProcess p entries =
+  case filter (sameEntries p) entries of
+    [p'] -> Just p'
+    [] -> Nothing
+    _ -> error "More than one process"
+    -- TODO `entries` must be a Map instead of a list.
+
+-- | Compare if two entries are equal, i.e. if they have
+-- same type, command and arguments.
+sameEntries :: Entry -> Entry -> Bool
+sameEntries p1 p2 = eType p1 == eType p2
+  && eCommand p1 == eCommand p2
+  && eArguments p1 == eArguments p2
+
+------------------------------------------------------------------------------
+-- Logging
+------------------------------------------------------------------------------
 
 colorize :: [MonitoredEntry] -> [MonitoredEntry]
 colorize entries = zipWith f entries $ cycle $ map Just
@@ -365,6 +401,10 @@ logP p@Entry{..} i s = do
   ts <- getTimeString
   putStrLn $ colorized p (ts ++ " " ++ eType ++ "." ++ show i) ++ s
 
+------------------------------------------------------------------------------
+-- Signals
+------------------------------------------------------------------------------
+
 -- | Install the handleHUP function as a SIGHUP handler.
 setupHUP :: Chan Command -> IO ()
 setupHUP chan = do
@@ -386,6 +426,10 @@ setupINT chan = do
 -- thread to quit the program.
 handleINT :: Chan Command -> IO ()
 handleINT = flip writeChan Quit
+
+------------------------------------------------------------------------------
+-- Utilities
+------------------------------------------------------------------------------
 
 -- | Convenience function to turn a ProcessHandle into an Int (used later when
 -- saving/restoring the state with SafeCopy).
@@ -410,3 +454,21 @@ getTimeString = do
   tm <- getClockTime
   ct <- toCalendarTime tm
   return $ formatCalendarTime defaultTimeLocale "%H:%M:%S" ct
+
+-- | Copy two handles to stout. It is better if the handles are line-buffered.
+pipeToStdout :: Entry -> Int -> Handle -> Handle -> IO ()
+pipeToStdout p i h1 h2 = do
+  eof1 <- hIsEOF h1
+  eof2 <- hIsEOF h2
+  ready1 <- if eof1 then return False else hReady h1
+  ready2 <- if eof2 then return False else hReady h2
+  when ready1 $ do
+    l <- hGetLine h1
+    logP p i l
+  when ready2 $ do
+    l <- hGetLine h2
+    logP p i l
+  when (not eof1 || not eof2) $ do
+    pipeToStdout p i h1 h2
+
+

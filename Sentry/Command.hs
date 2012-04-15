@@ -1,18 +1,30 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+-- |
+-- Module      : Sentry.Command
+-- Copyright   : (c) 2012 Vo Minh Thu,
+--
+-- License     : BSD-style
+-- Maintainer  : thu@hypered.be
+-- Stability   : experimental
+-- Portability : GHC
+--
+-- This module provides the command-line interface for a Sentry program. It
+-- defines data types to represent different subcommands and the corresponding
+-- functions.
 module Sentry.Command where
 
 import System.Console.CmdArgs.Implicit
 
-import Sentry.Process
-import Sentry.Types (Entry(..), Sentry(..))
+import Sentry.Core
+import Sentry.Types (Entry(..))
 
 -- | 'sentry' provides the main function of a Sentry configuration file. In
 -- particular it provides the command-line interface. It takes a list of
 -- configuration entries as its sole argument.
 sentry :: [Entry] -> IO ()
-sentry entries = (processCmd =<<) $ cmdArgs $
+sentry entries = (runCmd =<<) $ cmdArgs $
   modes
     [ cmdStart entries
     , cmdContinue entries
@@ -22,18 +34,25 @@ sentry entries = (processCmd =<<) $ cmdArgs $
   &= summary versionString
   &= program "sentry"
 
+-- | String with the program name, version and copyright.
 versionString :: String
 versionString =
   "Sentry - Process monitoring. Copyright (c) 2012 Vo Minh Thu."
   -- TODO add the version.
 
+-- | Data type representing the different command-line subcommands.
 data Cmd =
     Start { cmdEntries :: [Entry] }
+    -- ^ Start Sentry with the provided process specifications.
   | Continue { cmdEntries :: [Entry] }
+    -- ^ Resume Sentry with the provided process specifications.
   | Compile
+    -- ^ Compile Sentry.
   | Reload
+    -- ^ Reload Sentry.
   deriving (Data, Typeable)
 
+-- | Create a 'Start' command.
 cmdStart :: [Entry] -> Cmd
 cmdStart entries = Start
   { cmdEntries = entries
@@ -42,6 +61,7 @@ cmdStart entries = Start
     &= explicit
     &= name "start"
 
+-- | Create a 'Continue' command.
 cmdContinue :: [Entry] -> Cmd
 cmdContinue entries = Continue
   { cmdEntries = entries
@@ -51,39 +71,31 @@ cmdContinue entries = Continue
     &= explicit
     &= name "continue"
 
+-- | Create a 'Compile' command.
 cmdCompile :: Cmd
 cmdCompile = Compile
   &= help "Compile the configuration file, replacing this executable."
   &= explicit
   &= name "compile"
 
+-- | Create a 'Reload' command.
 cmdReload :: Cmd
 cmdReload = Reload
   &= help "Instruct a running Sentry to reload itself by sending it a SIGHUP."
   &= explicit
   &= name "reload"
 
-processCmd :: Cmd -> IO ()
-processCmd Start{..} = do
-  monitor cmdEntries
+-- | Run a Sentry sub-command.
+runCmd :: Cmd -> IO ()
+runCmd Start{..} = startMonitor cmdEntries
 
-processCmd Continue{..} = do
-  mstate <- readState
-  case mstate of
-    Nothing -> return ()
-    Just state@Sentry{..} -> do
-      putStrLn $ "Sentry reexec'd. Initially started at " ++
-        show sStartTime ++ " (Previously reexec'd at " ++
-        show sReexecTime ++ ")."
-      t <- getTime
-      let state' = state { sReexecTime = t }
-      continueMonitor state' cmdEntries
+runCmd Continue{..} = continueMonitor cmdEntries
 
-processCmd Compile{..} = do
+runCmd Compile{..} = do
   state <- initializeState []
   _ <- compile state
   return ()
 
-processCmd Reload{..} = do
+runCmd Reload{..} = do
   state <- initializeState []
   sendSIGHUP state

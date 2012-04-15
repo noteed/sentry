@@ -67,7 +67,7 @@ data MonitoredEntry = MonitoredEntry
 data Sentry = Sentry
   { sExecutablePath :: FilePath -- ^ Original executable path.
   , sStartTime :: Int -- ^ When the process was started.
-  , sReexecTime :: Int -- ^ When the process was reexec'd for the last time. TODO use Maybe Int
+  , sReexecTime :: Maybe Int -- ^ When the process was reexec'd for the last time.
   , sProcesses :: [MonitoredEntry] -- ^ List of monitored processes.
   }
   deriving Typeable

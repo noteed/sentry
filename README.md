@@ -85,8 +85,7 @@ http://hypered.be/haddock/sentry.
 - Let Sentry start a configuration instead of manually run it. I.e.
   `sentry start -c sample` instead of `~/.sentry/conf/sample`. Default
   configuration could be `sentry.hs`.
-- Move things around (proper module organization).
 - Separate data types for save/restore (i.e. with SafeCopy instances) and
   data types actually used at runtime.
-- Build on 7.0 and 7.4
+- Build on 7.0 and 7.4 (was tested only on 7.0.3 so far).
 - Tag a 0.1 version and push it to Hackage.
