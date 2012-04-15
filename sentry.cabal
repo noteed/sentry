@@ -9,7 +9,7 @@ description:
   .
   Under normal circumstance, the "Sentry" module is enough to write
   configuration files.
-category:            Network
+category:            System
 license:             BSD3
 license-file:        LICENSE
 author:              Vo Minh Thu
