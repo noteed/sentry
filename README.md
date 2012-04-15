@@ -79,6 +79,22 @@ This `README.md` file should be a good starting point. Additional information
 can be found in the Haddock pages. Those pages are currently available from
 http://hypered.be/haddock/sentry.
 
+## Design
+
+Sentry is configured with a list of process specifications. For each
+specification, multiple processes can be spawn and monitored.
+
+Sentry spawns a process by forking itself and then exec'ing the process'
+command. Waiting for the process to complete is done in a lightweight thread.
+Forking and waiting a child process is a more accurate way to know when the
+process dies than polling. (Another good way to do that is to use netlink with
+the process events connector.)
+
+A main thread reads commands from a concurrent queue (a `Chan` in Haskell).
+Commands are pushed by signal handlers and monitoring threads to instruct the
+main thread to act on its configuration (and thus change its set of monitored
+processes).
+
 ## TODO
 
 - Dynamically resize the number of processes for a specific entry.
