@@ -34,7 +34,6 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Applicative ((<$>))
-import Control.Exception (bracket)
 import Control.Monad (forM_, replicateM, when)
 import qualified Data.ByteString as B
 import Data.Either (partitionEithers)
@@ -48,8 +47,8 @@ import System.Console.ANSI (setSGRCode, ColorIntensity(..), Color(..)
 import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
 import System.Exit (ExitCode(..))
 import System.FilePath ((<.>), (</>), takeDirectory)
-import System.IO (hClose, hGetLine, hIsEOF, hPutStrLn, hReady, hSetBuffering
-  , openFile, stderr, stdout
+import System.IO (hGetLine, hIsEOF, hPutStrLn, hReady, hSetBuffering
+  , stderr, stdout, withFile
   , BufferMode(..), IOMode(..), Handle)
 import System.Locale (defaultTimeLocale)
 import System.Posix.Files (readSymbolicLink)
@@ -108,7 +107,7 @@ terminate MonitoredEntry{..} = do
 -- | Given a monitored process, adjust the number of worker processes to match
 -- the possibly updated spec.
 updateProcess :: Chan Command -> MonitoredEntry -> IO MonitoredEntry
-updateProcess chan p@MonitoredEntry{..} = do
+updateProcess chan p@MonitoredEntry{..} =
   case length mHandles `compare` eCount mEntry of
     EQ -> return p
     GT -> do
@@ -235,7 +234,7 @@ compile state = do
       hPutStrLn stderr $ binPath ++ " is not under " ++ conf ++ "."
       return False
     else do
-      status <- bracket (openFile errorPath WriteMode) hClose $ \h -> do
+      status <- withFile errorPath WriteMode $ \h -> do
         p <- runProcess "ghc"
           [ "--make", sourcePath, "-fforce-recomp", "-v0", "-threaded",
             "-o", binPath]
@@ -267,7 +266,7 @@ sendSIGHUP state = do
       -- TODO all these xxxPath could be function on Sentry.
   -- TODO better error messages.
   content <- readFile pidPath
-  signalProcess sigHUP $ fromIntegral $ (read content :: Int)
+  signalProcess sigHUP $ fromIntegral (read content :: Int)
 
 ------------------------------------------------------------------------------
 -- State
@@ -284,8 +283,7 @@ getStatePath = do
 getExecutablePath :: IO FilePath
 getExecutablePath = do
   pid <- fromIntegral <$> getProcessID :: IO Int
-  path <- readSymbolicLink $ "/proc/" ++ show pid ++ "/exe"
-  return path
+  readSymbolicLink $ "/proc/" ++ show pid ++ "/exe"
 
 -- | Make sure the directory where the application state is saved exists.
 ensureStateDirectory :: IO ()
@@ -343,7 +341,7 @@ readState = do
 -- be terminated if necessary.
 continueProcess :: [Entry] -> MonitoredEntry ->
   Either MonitoredEntry MonitoredEntry
-continueProcess entries m@MonitoredEntry{..} = do
+continueProcess entries m@MonitoredEntry{..} =
   case lookupProcess mEntry entries of
     Just p -> Right $ MonitoredEntry p mHandles
     Nothing -> Left m
@@ -351,7 +349,7 @@ continueProcess entries m@MonitoredEntry{..} = do
 -- | Add entries to a list of monitored entries if they are not already in
 -- there.
 addEntries :: [MonitoredEntry] -> [Entry] -> [MonitoredEntry]
-addEntries es e = foldl' addEntry es e
+addEntries = foldl' addEntry
 
 -- | Add an entry to a list of monitored entries if it is not already in
 -- there.
@@ -468,7 +466,7 @@ pipeToStdout p i h1 h2 = do
   when ready2 $ do
     l <- hGetLine h2
     logP p i l
-  when (not eof1 || not eof2) $ do
+  when (not eof1 || not eof2) $
     pipeToStdout p i h1 h2
 
 
