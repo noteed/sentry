@@ -37,6 +37,7 @@ data Entry = Entry
   -- Data is only needed so we can have [Entry]
   -- inside the Sentry.Command.Start command.
 
+showEntry :: Entry -> String
 showEntry Entry{..} = show eCount ++ " " ++ eType ++ ": " ++ eCommand ++ " "
   ++ intercalate " " eArguments ++ "  -- " ++ show eDelay ++ "ms."
 
@@ -90,3 +91,5 @@ data Command =
                                   -- ProcessHandle (as an Int) are given.
   | Reexec -- ^ Re-exec the application, usually after a SIGHUP.
   | Quit -- ^ Request the application to terminate, usually after SIGINT.
+  | Scale ProcessType Int -- ^ Instruct Sentry to change the number of running
+                          -- processes for a given type.

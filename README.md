@@ -73,6 +73,11 @@ will just do that:
     ^CBye.
     >
 
+## HTTP interface
+
+Sentry has an embedded web server to exposes its state over HTTP. It is also
+used to accept reconfiguration commands (e.g. scale a give process type).
+
 ## Documentation
 
 This `README.md` file should be a good starting point. Additional information
@@ -104,4 +109,3 @@ processes).
 - Separate data types for save/restore (i.e. with SafeCopy instances) and
   data types actually used at runtime.
 - Build on 7.0 and 7.4 (was tested only on 7.0.3 so far).
-- Tag a 0.1 version and push it to Hackage.

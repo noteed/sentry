@@ -12,10 +12,11 @@
 -- tibbe's ekg package (and contains some of its code).
 --
 -- Example client:
---   > curl -H "Accept: text/plain" http://127.0.0.1:8001/entries
+--   > curl -H "Accept: text/plain" http://127.0.0.1:8001/types
 module Sentry.Http where
 
 import Control.Applicative ((<$>))
+import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class (liftIO)
 
@@ -31,29 +32,39 @@ import Snap.Core (MonadSnap, Request, Snap, finishWith, getHeaders, getRequest,
                   rqParams, rqPathInfo, setContentType, setResponseStatus,
                   writeBS, writeLBS)
 -}
-import Snap.Core (MonadSnap, Request, getHeaders, getRequest,
-                  method, Method(GET), pass, route,
+import Snap.Core (MonadSnap, Request, getHeaders, getParam, getRequest,
+                  method, Method(GET, POST), pass, route,
                   writeBS)
 import Snap.Http.Server (httpServe)
 import qualified Snap.Http.Server.Config as Conf
 
-import Sentry.Types (Sentry, mEntry, showEntry, sProcesses)
+import Sentry.Types (Command(..), Sentry, mEntry, showEntry, sProcesses)
 
-serve :: MVar Sentry -> IO ()
-serve stateVar = httpServe conf $ handler stateVar
+serve :: MVar Sentry -> Chan Command -> IO ()
+serve stateVar chan = httpServe conf $ handler stateVar chan
   where conf = Conf.setPort 8001 $
                Conf.setHostname "127.0.0.1" $
                Conf.defaultConfig
 
-handler :: MonadSnap m => MVar Sentry -> m ()
-handler stateVar = do
+handler :: MonadSnap m => MVar Sentry -> Chan Command -> m ()
+handler stateVar chan = do
   state <- liftIO $ readMVar stateVar
   route
-    [ ("entries", method GET (format "text/plain" $ getEntries state))
+    [ ("types", method GET (format "text/plain" $ getTypes state))
+    , ("type/:type", method POST (scaleType state chan))
     ]
 
-getEntries state = mapM_ (writeBS . S8.pack . (++ "\n") . showEntry . mEntry) $
+getTypes state = mapM_ (writeBS . S8.pack . (++ "\n") . showEntry . mEntry) $
   sProcesses state
+
+scaleType state chan = do
+  mtyp <- getParam "type"
+  mscale <- getParam "scale"
+  case (mtyp, mscale) of
+    (Just typ, Just scale) -> do
+      liftIO $ writeChan chan $ Scale (S8.unpack typ) (read $ S8.unpack scale) -- TODO read can explode
+      writeBS "Ok." -- TODO feedback (possibly by giving an MVar to Scale)
+    _ -> pass
 
 -- From tibbe's ekg package.
 

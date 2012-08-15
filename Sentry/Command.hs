@@ -16,6 +16,7 @@
 module Sentry.Command where
 
 import Control.Concurrent (forkIO)
+import Control.Concurrent.Chan (newChan)
 import Control.Concurrent.MVar
 
 import System.Console.CmdArgs.Implicit
@@ -93,18 +94,20 @@ cmdReload = Reload
 runCmd :: Cmd -> IO ()
 runCmd Start{..} = do
   state <- initializeState cmdEntries
+  chan <- newChan
   stateVar <- newMVar state
-  _ <- forkIO $ serve stateVar
-  startMonitor state stateVar
+  _ <- forkIO $ serve stateVar chan
+  startMonitor state stateVar chan
 
 runCmd Continue{..} = do
   mstate <- readState
   case mstate of
     Nothing -> return ()
     Just state -> do
+      chan <- newChan
       stateVar <- newMVar state
-      _ <- forkIO $ serve stateVar
-      continueMonitor state cmdEntries stateVar
+      _ <- forkIO $ serve stateVar chan
+      continueMonitor state cmdEntries stateVar chan
 
 runCmd Compile{..} = do
   state <- initializeState []

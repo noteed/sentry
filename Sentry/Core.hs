@@ -131,10 +131,18 @@ removeProcess typ i p@MonitoredEntry{..} =
   then p { mHandles = filter (/= i) mHandles }
   else p
 
+-- | Change the number of requested processes (if they match,
+-- otherwise do nothing).
+scaleProcess :: ProcessType -> Int -> MonitoredEntry -> MonitoredEntry
+scaleProcess typ n p@MonitoredEntry{..} =
+  if eType mEntry == typ
+  then p { mEntry = mEntry { eCount = n } }
+  else p
+
 -- | Given a list of process specifications, start to monitor them. The given
 -- MVar is used to report back the evolving state.
-startMonitor :: Sentry -> MVar Sentry -> IO ()
-startMonitor state stateVar = do
+startMonitor :: Sentry -> MVar Sentry -> Chan Command -> IO ()
+startMonitor state stateVar chan = do
   home <- getHomeDirectory
   let sentry = home </> ".sentry"
       conf = sentry </> "conf"
@@ -149,12 +157,12 @@ startMonitor state stateVar = do
         ++ pidPath ++ ")."
       writeFile pidPath $ show pid
 
-  monitor state stateVar
+  monitor state stateVar chan
 
 -- | Given new process specifications, continue the monitoring. The given MVar
 -- is used to report back the evolving state.
-continueMonitor :: Sentry -> [Entry] -> MVar Sentry -> IO ()
-continueMonitor state@Sentry{..} entries stateVar = do
+continueMonitor :: Sentry -> [Entry] -> MVar Sentry -> Chan Command -> IO ()
+continueMonitor state@Sentry{..} entries stateVar chan = do
   putStrLn $ "Sentry reexec'd. Initially started at " ++
     show sStartTime ++ maybe "." (\r -> " (Previously reexec'd at " ++
     show r ++ ").") sReexecTime
@@ -165,15 +173,14 @@ continueMonitor state@Sentry{..} entries stateVar = do
         { sProcesses = addEntries kept entries
         , sReexecTime = Just t }
   mapM_ terminate walkingDeads
-  monitor state' stateVar
+  monitor state' stateVar chan
 
 -- | Monitor the processes from the given application state.
-monitor :: Sentry -> MVar Sentry -> IO ()
-monitor state stateVar = do
+monitor :: Sentry -> MVar Sentry -> Chan Command -> IO ()
+monitor state stateVar chan = do
   let state' = state { sProcesses = colorize $ sProcesses state }
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
-  chan <- newChan
   setupHUP chan
   setupINT chan
   -- follow existing handles, if any (after a re-exec there can be some).
@@ -215,6 +222,11 @@ processChan state@Sentry{..} chan stateVar = do
       -- waiting period?
       mapM_ (mapM_ (\i -> intToProcessHandle i >>=
         terminateProcess) . mHandles) sProcesses
+    Scale typ n -> do
+      let ps = map (scaleProcess typ n) sProcesses
+      ps' <- mapM (updateProcess chan) ps
+      let state' = state { sProcesses = ps' }
+      processChan state' chan stateVar
 
 -- | Compile itself.
 compile :: Sentry -> IO Bool
