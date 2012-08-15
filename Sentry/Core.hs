@@ -28,6 +28,8 @@ module Sentry.Core
   , sendSIGHUP
   , compile
   , reexecute
+  -- * To be removed
+  , waitForever
   ) where
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -56,7 +58,7 @@ import System.Posix.Process (executeFile, getProcessID)
 import System.Posix.Signals (installHandler, sigHUP, sigINT, signalProcess
   , Handler(..))
 import System.Process (createProcess, getProcessExitCode, proc
-  , runProcess, std_out, terminateProcess, waitForProcess)
+  , runProcess, terminateProcess, waitForProcess)
 import System.Process.Internals
 import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
@@ -131,11 +133,10 @@ removeProcess typ i p@MonitoredEntry{..} =
   then p { mHandles = filter (/= i) mHandles }
   else p
 
--- | Given a list of process specifications, start to monitor them.
-startMonitor :: [Entry] -> IO ()
-startMonitor entries = do
-  state <- initializeState entries
-
+-- | Given a list of process specifications, start to monitor them. The given
+-- MVar is used to report back the evolving state.
+startMonitor :: Sentry -> MVar Sentry -> IO ()
+startMonitor state stateVar = do
   home <- getHomeDirectory
   let sentry = home </> ".sentry"
       conf = sentry </> "conf"
@@ -150,30 +151,27 @@ startMonitor entries = do
         ++ pidPath ++ ")."
       writeFile pidPath $ show pid
 
-  monitor state
+  monitor state stateVar
 
--- | Given new process specifications, continue the monitoring.
-continueMonitor :: [Entry] -> IO ()
-continueMonitor entries = do
-  mstate <- readState
-  case mstate of
-    Nothing -> return ()
-    Just state@Sentry{..} -> do
-      putStrLn $ "Sentry reexec'd. Initially started at " ++
-        show sStartTime ++ maybe "." (\r -> " (Previously reexec'd at " ++
-        show r ++ ").") sReexecTime
-      t <- getTime
-      let (walkingDeads, kept) = partitionEithers $
-            map (continueProcess entries) sProcesses
-          state' = state
-            { sProcesses = addEntries kept entries
-            , sReexecTime = Just t }
-      mapM_ terminate walkingDeads
-      monitor state'
+-- | Given new process specifications, continue the monitoring. The given MVar
+-- is used to report back the evolving state.
+continueMonitor :: Sentry -> [Entry] -> MVar Sentry -> IO ()
+continueMonitor state@Sentry{..} entries stateVar = do
+  putStrLn $ "Sentry reexec'd. Initially started at " ++
+    show sStartTime ++ maybe "." (\r -> " (Previously reexec'd at " ++
+    show r ++ ").") sReexecTime
+  t <- getTime
+  let (walkingDeads, kept) = partitionEithers $
+        map (continueProcess entries) sProcesses
+      state' = state
+        { sProcesses = addEntries kept entries
+        , sReexecTime = Just t }
+  mapM_ terminate walkingDeads
+  monitor state' stateVar
 
 -- | Monitor the processes from the given application state.
-monitor :: Sentry -> IO ()
-monitor state = do
+monitor :: Sentry -> MVar Sentry -> IO ()
+monitor state stateVar = do
   let state' = state { sProcesses = colorize $ sProcesses state }
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
@@ -184,23 +182,24 @@ monitor state = do
   forM_ (sProcesses state') $
     \p -> mapM_ (follow chan $ mEntry p) $ mHandles p
   writeChan chan UpdateProcesses
-  processChan state' chan
+  processChan state' chan stateVar
 
 -- | Process the command received on the main channel. This acts as a main
 -- event loop.
-processChan :: Sentry -> Chan Command -> IO ()
-processChan state@Sentry{..} chan = do
+processChan :: Sentry -> Chan Command -> MVar Sentry -> IO ()
+processChan state@Sentry{..} chan stateVar = do
+  modifyMVar_ stateVar $ return . const state
   command <- readChan chan
   case command of
     UpdateProcesses -> do
       ps <- mapM (updateProcess chan) sProcesses
       let state' = state { sProcesses = ps }
-      processChan state' chan
+      processChan state' chan stateVar
     ProcessExited typ i -> do
       let ps = map (removeProcess typ i) sProcesses
       ps' <- mapM (updateProcess chan) ps
       let state' = state { sProcesses = ps' }
-      processChan state' chan
+      processChan state' chan stateVar
     Reexec -> do
       -- TODO Compile/Reexec can be splitted:
       -- First start a thread waiting while compiling.
@@ -211,7 +210,7 @@ processChan state@Sentry{..} chan = do
       b <- compile state
       if b
         then reexecute state
-        else processChan state chan
+        else processChan state chan stateVar
     Quit -> do
       putStrLn "Bye."
       -- TODO SIGTERM should be replaced by SIGINT and a small
@@ -469,4 +468,11 @@ pipeToStdout p i h1 h2 = do
   when (not eof1 || not eof2) $
     pipeToStdout p i h1 h2
 
-
+-- | Keep reading an MVar. This is done to simulate the presence of some
+-- reporting loop reading and displaying the current Sentry state.
+waitForever :: MVar Sentry -> IO ()
+waitForever stateVar = do
+  state <- readMVar stateVar
+  -- TODO do omething with state.
+  threadDelay 1000000
+  waitForever stateVar

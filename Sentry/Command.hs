@@ -15,6 +15,9 @@
 -- functions.
 module Sentry.Command where
 
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar
+
 import System.Console.CmdArgs.Implicit
 
 import Sentry.Core
@@ -87,9 +90,20 @@ cmdReload = Reload
 
 -- | Run a Sentry sub-command.
 runCmd :: Cmd -> IO ()
-runCmd Start{..} = startMonitor cmdEntries
+runCmd Start{..} = do
+  state <- initializeState cmdEntries
+  stateVar <- newMVar state
+  _ <- forkIO $ waitForever stateVar
+  startMonitor state stateVar
 
-runCmd Continue{..} = continueMonitor cmdEntries
+runCmd Continue{..} = do
+  mstate <- readState
+  case mstate of
+    Nothing -> return ()
+    Just state -> do
+      stateVar <- newMVar state
+      waitForever stateVar
+      continueMonitor state cmdEntries stateVar
 
 runCmd Compile{..} = do
   state <- initializeState []
