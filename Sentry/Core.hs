@@ -453,7 +453,7 @@ getTimeString = do
   ct <- toCalendarTime tm
   return $ formatCalendarTime defaultTimeLocale "%H:%M:%S" ct
 
--- | Copy two handles to stout. It is better if the handles are line-buffered.
+-- | Copy two handles to stdout. It is better if the handles are line-buffered.
 pipeToStdout :: Entry -> Int -> Handle -> Handle -> IO ()
 pipeToStdout p i h1 h2 = do
   eof1 <- hIsEOF h1

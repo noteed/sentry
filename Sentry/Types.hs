@@ -80,7 +80,7 @@ deriveSafeCopy 0 'base ''Sentry
 data Command =
     UpdateProcesses -- ^ Request to update the monitored processes list (e.g.
                     -- because a process has exited or a process specification
-                    -- has been changed, added, or removed.
+                    -- has been changed, added, or removed).
   | ProcessExited ProcessType Int -- ^ A process has exited. Its type and its
                                   -- ProcessHandle (as an Int) are given.
   | Reexec -- ^ Re-exec the application, usually after a SIGHUP.
