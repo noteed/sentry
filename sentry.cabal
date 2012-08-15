@@ -37,6 +37,7 @@ library
                        snap-core == 0.9.*,
                        snap-server == 0.9.*,
                        time == 1.4.*,
+                       transformers == 0.2.*,
                        unix == 2.5.1.*
   exposed-modules:     Sentry,
                        Sentry.Command,

@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- |
@@ -15,6 +16,7 @@
 module Sentry.Types where
 
 import Data.Data (Data)
+import Data.List (intercalate)
 import Data.SafeCopy
 import Data.Typeable
 import System.Console.ANSI (Color(..))
@@ -34,6 +36,9 @@ data Entry = Entry
   deriving (Data, Typeable)
   -- Data is only needed so we can have [Entry]
   -- inside the Sentry.Command.Start command.
+
+showEntry Entry{..} = show eCount ++ " " ++ eType ++ ": " ++ eCommand ++ " "
+  ++ intercalate " " eArguments ++ "  -- " ++ show eDelay ++ "ms."
 
 deriving instance Data Color
 deriving instance Typeable Color
