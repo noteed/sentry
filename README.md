@@ -76,7 +76,7 @@ will just do that:
 ## HTTP interface
 
 Sentry has an embedded web server to exposes its state over HTTP. It is also
-used to accept reconfiguration commands (e.g. scale a give process type).
+used to accept reconfiguration commands (e.g. scale a given process type).
 
 ## Documentation
 

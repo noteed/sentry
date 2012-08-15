@@ -13,6 +13,7 @@
 --
 -- Example client:
 --   > curl -H "Accept: text/plain" http://127.0.0.1:8001/types
+--   > curl http://127.0.0.1:8001/type/name -d scale=2
 module Sentry.Http where
 
 import Control.Applicative ((<$>))
