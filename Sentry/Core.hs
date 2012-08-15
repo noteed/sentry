@@ -28,8 +28,6 @@ module Sentry.Core
   , sendSIGHUP
   , compile
   , reexecute
-  -- * To be removed
-  , waitForever
   ) where
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -467,12 +465,3 @@ pipeToStdout p i h1 h2 = do
     logP p i l
   when (not eof1 || not eof2) $
     pipeToStdout p i h1 h2
-
--- | Keep reading an MVar. This is done to simulate the presence of some
--- reporting loop reading and displaying the current Sentry state.
-waitForever :: MVar Sentry -> IO ()
-waitForever stateVar = do
-  state <- readMVar stateVar
-  -- TODO do omething with state.
-  threadDelay 1000000
-  waitForever stateVar

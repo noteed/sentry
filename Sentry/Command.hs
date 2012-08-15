@@ -21,6 +21,7 @@ import Control.Concurrent.MVar
 import System.Console.CmdArgs.Implicit
 
 import Sentry.Core
+import Sentry.Http (serve)
 import Sentry.Types (Entry(..))
 
 -- | 'sentry' provides the main function of a Sentry configuration file. In
@@ -93,7 +94,7 @@ runCmd :: Cmd -> IO ()
 runCmd Start{..} = do
   state <- initializeState cmdEntries
   stateVar <- newMVar state
-  _ <- forkIO $ waitForever stateVar
+  _ <- forkIO $ serve stateVar
   startMonitor state stateVar
 
 runCmd Continue{..} = do
@@ -102,7 +103,7 @@ runCmd Continue{..} = do
     Nothing -> return ()
     Just state -> do
       stateVar <- newMVar state
-      waitForever stateVar
+      _ <- forkIO $ serve stateVar
       continueMonitor state cmdEntries stateVar
 
 runCmd Compile{..} = do

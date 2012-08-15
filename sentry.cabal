@@ -1,5 +1,5 @@
 name:                sentry
-version:             0.3.0
+version:             0.4.0
 Cabal-Version:       >= 1.8
 synopsis:            Process monitoring tool written and configured in Haskell
 description:
@@ -34,11 +34,14 @@ library
                        old-time == 1.1.*,
                        process == 1.1.*,
                        safecopy == 0.6.*,
+                       snap-core == 0.9.*,
+                       snap-server == 0.9.*,
                        time == 1.4.*,
                        unix == 2.5.1.*
   exposed-modules:     Sentry,
                        Sentry.Command,
                        Sentry.Core,
+                       Sentry.Http,
                        Sentry.Types
   ghc-options:         -Wall
 

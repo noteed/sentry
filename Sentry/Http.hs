@@ -13,12 +13,6 @@ module Sentry.Http where
 
 import Control.Concurrent.MVar
 
-{-
-import Snap.Core (MonadSnap, Request, Snap, finishWith, getHeaders, getRequest,
-                  getResponse, method, Method(GET), modifyResponse, pass, route,
-                  rqParams, rqPathInfo, setContentType, setResponseStatus,
-                  writeBS, writeLBS)
--}
 import Snap.Core (MonadSnap,
                   method, Method(GET), route,
                   writeLBS)
