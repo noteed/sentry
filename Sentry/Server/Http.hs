@@ -24,7 +24,7 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
 import Data.Function (on)
-import Data.List (intercalate, sortBy)
+import Data.List (sortBy)
 import Data.Word (Word8)
 
 {-
@@ -55,9 +55,11 @@ handler stateVar chan = do
     , ("type/:type", method POST (scaleType state chan))
     ]
 
+getTypes :: MonadSnap m => Sentry -> m ()
 getTypes state = mapM_ (writeBS . S8.pack . (++ "\n") . showEntry . mEntry) $
   sProcesses state
 
+scaleType :: MonadSnap m => Sentry -> Chan Command -> m ()
 scaleType state chan = do
   mtyp <- getParam "type"
   mscale <- getParam "scale"
