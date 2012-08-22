@@ -144,7 +144,7 @@ scaleProcess typ n p@MonitoredEntry{..} =
 startMonitor :: Sentry -> MVar Sentry -> Chan Command -> IO ()
 startMonitor state stateVar chan = do
   home <- getHomeDirectory
-  let sentry = home </> ".sentry"
+  let sentry = home </> ".sentryd"
       conf = sentry </> "conf"
       binPath = sExecutablePath state
       pidPath = binPath <.> "pid"
@@ -209,7 +209,7 @@ processChan state@Sentry{..} chan stateVar = do
       -- TODO Compile/Reexec can be splitted:
       -- First start a thread waiting while compiling.
       -- Second push Reexec on the chan.
-      -- Or simply let the `sentry reload` command do it
+      -- Or simply let the `sentryd reload` command do it
       -- before issuing the SIGHUP signal.
       -- TODO compile only if the file has been modified.
       b <- compile state
@@ -232,7 +232,7 @@ processChan state@Sentry{..} chan stateVar = do
 compile :: Sentry -> IO Bool
 compile state = do
   home <- getHomeDirectory
-  let sentry = home </> ".sentry"
+  let sentry = home </> ".sentryd"
       conf = sentry </> "conf"
       binPath = sExecutablePath state
       sourcePath = binPath <.> "hs"
@@ -261,7 +261,7 @@ compile state = do
           hPutStrLn stderr content
           return False
 
--- | Save the application state then re-exec itself (calling `sentry continue`).
+-- | Save the application state then re-exec itself (calling `sentryd continue`).
 reexecute :: Sentry -> IO a
 reexecute state = do
   saveState state
@@ -285,7 +285,7 @@ sendSIGHUP state = do
 getStatePath :: IO FilePath
 getStatePath = do
   home <- getHomeDirectory
-  return $ home </> ".sentry" </> "sentry.state"
+  return $ home </> ".sentryd" </> "sentry.state"
 
 -- Inspired by the `executale-path` package, which implements
 -- a similar function for different OS.
@@ -298,7 +298,7 @@ getExecutablePath = do
 ensureStateDirectory :: IO ()
 ensureStateDirectory = do
   home <- getHomeDirectory
-  let dir = home </> ".sentry"
+  let dir = home </> ".sentryd"
       conf = dir </> "conf"
   createDirectoryIfMissing False dir
   createDirectoryIfMissing False conf

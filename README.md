@@ -22,7 +22,7 @@ Sentry is written in Haskell and is also configured in Haskell. The principle
 is to write a short script in `~/.sentry/conf/`. For instance a `sample.hs`
 configuration would look like the following:
 
-    import Sentry
+    import Sentry.Server
 
     main :: IO ()
     main = sentry
@@ -104,7 +104,7 @@ processes).
 
 - Dynamically resize the number of processes for a specific entry.
 - Let Sentry start a configuration instead of manually run it. I.e.
-  `sentry start -c sample` instead of `~/.sentry/conf/sample`. Default
+  `sentryd start -c sample` instead of `~/.sentry/conf/sample`. Default
   configuration could be `sentry.hs`.
 - Separate data types for save/restore (i.e. with SafeCopy instances) and
   data types actually used at runtime.
