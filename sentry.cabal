@@ -1,5 +1,5 @@
 name:                sentry
-version:             0.4.0
+version:             0.4.1
 Cabal-Version:       >= 1.8
 synopsis:            Process monitoring tool written and configured in Haskell
 description:
@@ -39,16 +39,17 @@ library
                        time == 1.4.*,
                        transformers == 0.2.*,
                        unix == 2.5.1.*
-  exposed-modules:     Sentry,
-                       Sentry.Command,
-                       Sentry.Core,
-                       Sentry.Http,
-                       Sentry.Types
+  exposed-modules:     Sentry.Client.Command,
+                       Sentry.Server,
+                       Sentry.Server.Command,
+                       Sentry.Server.Core,
+                       Sentry.Server.Http,
+                       Sentry.Server.Types
   ghc-options:         -Wall
 
-executable sentry
+executable sentryd
   hs-source-dirs:      bin
-  main-is:             sentry.hs
+  main-is:             sentryd.hs
   build-depends:       base == 4.*,
                        directory == 1.1.*,
                        filepath == 1.3.*,
@@ -56,6 +57,13 @@ executable sentry
                        unix == 2.5.1.*
   ghc-options:         -Wall
                        -threaded
+
+executable sentry
+  hs-source-dirs:      bin
+  main-is:             sentry.hs
+  build-depends:       base == 4.*,
+                       sentry
+  ghc-options:         -Wall
 
 executable sentry-sleep
   hs-source-dirs:      bin

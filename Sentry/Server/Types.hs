@@ -3,7 +3,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- |
--- Module      : Sentry.Types
+-- Module      : Sentry.Server.Types
 -- Copyright   : (c) 2012 Vo Minh Thu,
 --
 -- License     : BSD-style
@@ -13,7 +13,7 @@
 --
 -- This module contains the different data types and type synonyms used in
 -- Sentry.
-module Sentry.Types where
+module Sentry.Server.Types where
 
 import Data.Data (Data)
 import Data.List (intercalate)
@@ -35,7 +35,7 @@ data Entry = Entry
   }
   deriving (Data, Typeable)
   -- Data is only needed so we can have [Entry]
-  -- inside the Sentry.Command.Start command.
+  -- inside the Sentry.Server.Command.Start command.
 
 showEntry :: Entry -> String
 showEntry Entry{..} = show eCount ++ " " ++ eType ++ ": " ++ eCommand ++ " "

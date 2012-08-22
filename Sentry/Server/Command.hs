@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 -- |
--- Module      : Sentry.Command
+-- Module      : Sentry.Server.Command
 -- Copyright   : (c) 2012 Vo Minh Thu,
 --
 -- License     : BSD-style
@@ -13,7 +13,7 @@
 -- This module provides the command-line interface for a Sentry program. It
 -- defines data types to represent different subcommands and the corresponding
 -- functions.
-module Sentry.Command where
+module Sentry.Server.Command where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (newChan)
@@ -21,9 +21,9 @@ import Control.Concurrent.MVar
 
 import System.Console.CmdArgs.Implicit
 
-import Sentry.Core
-import Sentry.Http (serve)
-import Sentry.Types (Entry(..))
+import Sentry.Server.Core
+import Sentry.Server.Http (serve)
+import Sentry.Server.Types (Entry(..))
 
 -- | 'sentry' provides the main function of a Sentry configuration file. In
 -- particular it provides the command-line interface. It takes a list of
@@ -37,12 +37,12 @@ sentry entries = (runCmd =<<) $ cmdArgs $
     , cmdReload
     ]
   &= summary versionString
-  &= program "sentry"
+  &= program "sentryd"
 
 -- | String with the program name, version and copyright.
 versionString :: String
 versionString =
-  "Sentry - Process monitoring. Copyright (c) 2012 Vo Minh Thu."
+  "Sentry Server - Process monitoring. Copyright (c) 2012 Vo Minh Thu."
   -- TODO add the version.
 
 -- | Data type representing the different command-line subcommands.
@@ -90,7 +90,7 @@ cmdReload = Reload
   &= explicit
   &= name "reload"
 
--- | Run a Sentry sub-command.
+-- | Run a Sentryd sub-command.
 runCmd :: Cmd -> IO ()
 runCmd Start{..} = do
   state <- initializeState cmdEntries

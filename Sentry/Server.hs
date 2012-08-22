@@ -1,5 +1,5 @@
 -- |
--- Module      : Sentry
+-- Module      : Sentry.Server
 -- Copyright   : (c) 2012 Vo Minh Thu,
 --
 -- License     : BSD-style
@@ -11,7 +11,7 @@
 -- configuration file. A configuration file is actually a (simple) Haskell
 -- program. As an example, consider the following code:
 --
--- > import Sentry
+-- > import Sentry.Server
 -- >
 -- > main :: IO ()
 -- > main = sentry
@@ -25,10 +25,10 @@
 -- the @--help@ option.
 --
 -- See `sentry` and `entry` below for more details on those functions.
-module Sentry
+module Sentry.Server
   ( sentry
   , entry
   ) where
 
-import Sentry.Command (sentry)
-import Sentry.Types (entry)
+import Sentry.Server.Command (sentry)
+import Sentry.Server.Types (entry)

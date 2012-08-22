@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- |
--- Module      : Sentry.Http
+-- Module      : Sentry.Server.Http
 -- Copyright   : (c) 2012 Vo Minh Thu,
 --
 -- License     : BSD-style
@@ -14,7 +14,7 @@
 -- Example client:
 --   > curl -H "Accept: text/plain" http://127.0.0.1:8001/types
 --   > curl http://127.0.0.1:8001/type/name -d scale=2
-module Sentry.Http where
+module Sentry.Server.Http where
 
 import Control.Applicative ((<$>))
 import Control.Concurrent.Chan
@@ -39,7 +39,7 @@ import Snap.Core (MonadSnap, Request, getHeaders, getParam, getRequest,
 import Snap.Http.Server (httpServe)
 import qualified Snap.Http.Server.Config as Conf
 
-import Sentry.Types (Command(..), Sentry, mEntry, showEntry, sProcesses)
+import Sentry.Server.Types (Command(..), Sentry, mEntry, showEntry, sProcesses)
 
 serve :: MVar Sentry -> Chan Command -> IO ()
 serve stateVar chan = httpServe conf $ handler stateVar chan

@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 -- |
--- Module      : Sentry.Core
+-- Module      : Sentry.Server.Core
 -- Copyright   : (c) 2012 Vo Minh Thu,
 --
 -- License     : BSD-style
@@ -10,7 +10,7 @@
 --
 -- This module is Sentry's core implementation: state initialization, process
 -- spawning and monitoring.
-module Sentry.Core
+module Sentry.Server.Core
   (
   -- * Processes
     spawn
@@ -60,7 +60,7 @@ import System.Process (createProcess, getProcessExitCode, proc
 import System.Process.Internals
 import System.Time (formatCalendarTime, getClockTime, toCalendarTime)
 
-import Sentry.Types
+import Sentry.Server.Types
 
 -- | Create a new process, monitored by a new thread. The provided channel
 -- is used by the monitoring thread when the process exits to notify the
