@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Sentry by noteed</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>Sentry</h1>
+        <p>Simple process monitoring</p>
+
+        <p class="view"><a href="https://github.com/noteed/sentry">View the Project on GitHub <small>noteed/sentry</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/noteed/sentry/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/noteed/sentry/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/noteed/sentry">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>Sentry - Simple process monitoring</h1>
+
+<p>This project is in early stage.</p>
+
+<p>Sentry is a process monitoring tool written and configured in Haskell. Its aim
+is to keep running programs. For each configured program (called an entry in
+its configuration) , multiple processes can be started.</p>
+
+<p>Currently Sentry runs on Linux only.</p>
+
+<h2>Install</h2>
+
+<p>The development version can be installed by cloning the Git repository and
+using cabal:</p>
+
+<pre><code>&gt; git clone git://github.com/noteed/sentry.git
+&gt; cd sentry &amp;&amp; cabal install
+</code></pre>
+
+<h2>Usage</h2>
+
+<p>Sentry is written in Haskell and is also configured in Haskell. The principle
+is to write a short script in <code>~/.sentry/conf/</code>. For instance a <code>sample.hs</code>
+configuration would look like the following:</p>
+
+<pre><code>import Sentry.Server
+
+main :: IO ()
+main = sentry
+  [ entry "dummy" "sleep" ["4"] 1000 1
+  ]
+</code></pre>
+
+<p><code>"dummy"</code> is the entry name, also called the process type. <code>"sleep"</code> and
+<code>["4"]</code> is the command that need to be run (and kept running), together with
+its arguments. The <code>1000</code> value specifies how long in milliseconds Sentry has
+to wait before restarting the command when it dies. Finally <code>1</code> is the number
+of processes you want to run that particular process type. You can then compile
+<code>sample.hs</code> and obtain a <code>sample</code> binary like this:</p>
+
+<pre><code>&gt; ghc --make -threaded sample.hs
+</code></pre>
+
+<p>Start your Sentry with:</p>
+
+<pre><code>&gt; ~/.sentry/conf/sample start
+</code></pre>
+
+<p>Sentry will save its PID to <code>sample.pid</code> and start running the "dummy" entry:</p>
+
+<pre><code>Sentry started (PID: 1511s aved in /home/thu/.sentry/conf/sample.pid).
+20:17:51 dummy.1514      Started at 1334081871.
+20:17:55 dummy.1514      Exited at 1334081875 with ExitSuccess.
+20:17:56 dummy.1516      Started at 1334081876.
+20:18:00 dummy.1516      Exited at 1334081880 with ExitSuccess.
+^CBye.
+&gt;
+</code></pre>
+
+<p>Whenever <code>sleep</code> exits, Sentry will run it again, and again.</p>
+
+<p>Recompiling a configuration (i.e. <code>sample.hs</code> in the example) can be done while
+Sentry is running. A SIGHUP will instruct Sentry to re-exec itself, using the
+new configuration. The command (while Sentry is already running)</p>
+
+<pre><code>&gt; ~/.sentry/conf/sample reload
+</code></pre>
+
+<p>will just do that:</p>
+
+<pre><code>&gt; .sentry/conf/sample start
+Sentry started (PID: 1530saved in /home/thu/.sentry/conf/sample.pid).
+20:32:01 dummy.1536      Started at 1334082721.
+20:32:05 dummy.1536      Exited at 1334082725 with ExitSuccess.
+/home/thu/.sentry/conf/sample.hs successfully compiled.
+Sentry reexec'd. Initially started at 1334082711 (Previously reexec'd at 1334082711).
+20:32:08 dummy.1550      Started at 1334082728.
+20:32:12 dummy.1550      Exited at 1334082732 with ExitSuccess.
+^CBye.
+&gt;
+</code></pre>
+
+<h2>HTTP interface</h2>
+
+<p>Sentry has an embedded web server to exposes its state over HTTP. It is also
+used to accept reconfiguration commands (e.g. scale a given process type).</p>
+
+<h2>Documentation</h2>
+
+<p>This <code>README.md</code> file should be a good starting point. Additional information
+can be found in the Haddock pages. Those pages are currently available from
+<a href="http://hypered.be/haddock/sentry">http://hypered.be/haddock/sentry</a>.</p>
+
+<h2>Design</h2>
+
+<p>Sentry is configured with a list of process specifications. For each
+specification, multiple processes can be spawn and monitored.</p>
+
+<p>Sentry spawns a process by forking itself and then exec'ing the process'
+command. Waiting for the process to complete is done in a lightweight thread.
+Forking and waiting a child process is a more accurate way to know when the
+process dies than polling. (Another good way to do that is to use netlink with
+the process events connector.)</p>
+
+<p>A main thread reads commands from a concurrent queue (a <code>Chan</code> in Haskell).
+Commands are pushed by signal handlers and monitoring threads to instruct the
+main thread to act on its configuration (and thus change its set of monitored
+processes).</p>
+
+<h2>TODO</h2>
+
+<ul>
+<li>Dynamically resize the number of processes for a specific entry.</li>
+<li>Let Sentry start a configuration instead of manually run it. I.e.
+<code>sentryd start -c sample</code> instead of <code>~/.sentry/conf/sample</code>. Default
+configuration could be <code>sentry.hs</code>.</li>
+<li>Separate data types for save/restore (i.e. with SafeCopy instances) and
+data types actually used at runtime.</li>
+<li>Build on 7.0 and 7.4 (was tested only on 7.0.3 so far).</li>
+</ul>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/noteed">noteed</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
