@@ -1,5 +1,5 @@
 name:                sentry
-version:             0.5.0
+version:             0.5.1
 Cabal-Version:       >= 1.8
 synopsis:            Process monitoring tool written and configured in Haskell
 description:
@@ -13,7 +13,7 @@ category:            System
 license:             BSD3
 license-file:        LICENSE
 author:              Vo Minh Thu
-maintainer:          noteed@gmail.com
+maintainer:          thu@hypered.be
 homepage:            https://github.com/noteed/sentry
 bug-reports:         https://github.com/noteed/sentry/issues
 build-type:          Simple
@@ -72,3 +72,39 @@ executable sentry-sleep
   ghc-options:         -Wall
                        -threaded
   buildable: True
+
+executable sentry-kill
+  hs-source-dirs:      bin
+  main-is:             sentry-kill.hs
+  build-depends:       base == 4.*,
+                       acid-state == 0.8.*,
+                       cmdargs == 0.9.*,
+                       mtl == 2.1.*,
+                       safecopy == 0.8.*,
+                       unix == 2.6.*
+  ghc-options:         -Wall
+  buildable: True
+
+test-suite sentryd-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      tests
+  main-is:             sentryd-test.hs
+  build-depends:       base == 4.*,
+                       ansi-terminal == 0.6.*,
+                       bytestring == 0.10.*,
+                       cereal == 0.3.*,
+                       cmdargs == 0.9.*,
+                       directory == 1.2.*,
+                       filepath == 1.3.*,
+                       old-locale == 1.0.*,
+                       old-time == 1.1.*,
+                       process == 1.1.*,
+                       safecopy == 0.8.*,
+                       sentry,
+                       snap-core == 0.9.*,
+                       snap-server == 0.9.*,
+                       time == 1.4.*,
+                       transformers == 0.3.*,
+                       unix == 2.6.*
+  ghc-options:         -Wall
+                       -threaded

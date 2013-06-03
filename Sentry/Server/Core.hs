@@ -65,22 +65,23 @@ import Sentry.Server.Types
 -- | Create a new process, monitored by a new thread. The provided channel
 -- is used by the monitoring thread when the process exits to notify the
 -- main thread.
-spawn :: Chan Command -> Entry -> IO Int -- TODO newtype ProcessID
-spawn chan e@Entry{..} = do
+-- This assumes the port, if needed, is already open and the corresponding
+-- file descriptor available.
+spawn :: Chan Command -> MonitoredEntry -> IO Int -- TODO newtype ProcessID
+spawn chan p@MonitoredEntry{..} = do
   (_, Just hout, Just herr, h) <- createProcess $
-    (proc eCommand eArguments)
-    { std_out = CreatePipe, std_err = CreatePipe }
+    (uncurry proc $ command p) { std_out = CreatePipe, std_err = CreatePipe }
   i <- processHandleToInt h
-  t1 <- getTime
-  logP e i $ "Started at " ++ show t1 ++ "."
-  follow chan e i
-  _ <- forkIO $ pipeToStdout e i hout herr
+  t <- getTime
+  logP p i $ "Started at " ++ show t ++ "."
+  follow chan p i
+  _ <- forkIO $ pipeToStdout p i hout herr
   return i
 
 -- | Wait for a process to complete. When it happens, it will notify the main
 -- thread using the provided channel. Return without blocking.
-follow :: Chan Command -> Entry -> Int -> IO ()
-follow chan p@Entry{..} i = do
+follow :: Chan Command -> MonitoredEntry -> Int -> IO ()
+follow chan p@MonitoredEntry{..} i = do
   _ <- forkIO $ do
     -- After a re-exec, waitForProcess will make an error if the
     -- child has already exited, so use getProcessExitCode at first.
@@ -89,13 +90,13 @@ follow chan p@Entry{..} i = do
     h <- intToProcessHandle i
     mCode <- getProcessExitCode h
     case mCode of
-      Just _ -> writeChan chan $ ProcessExited eType i
+      Just _ -> writeChan chan $ ProcessExited (eType mEntry) i
       Nothing -> do
         exitCode <- waitForProcess h
         t <- getTime
         logP p i $ "Exited at " ++ show t ++ " with " ++ show exitCode ++ "."
-        threadDelay $ eDelay * 1000
-        writeChan chan $ ProcessExited eType i
+        threadDelay $ eDelay mEntry * 1000
+        writeChan chan $ ProcessExited (eType mEntry) i
   return ()
 
 terminate :: MonitoredEntry -> IO ()
@@ -114,13 +115,13 @@ updateProcess chan p@MonitoredEntry{..} =
       let n = length mHandles - eCount mEntry
           toTerminate = take n mHandles
           toKeep = drop n mHandles
-      -- logP mEntry $ show n ++ " less workers required."
+      -- logP p $ show n ++ " less workers required."
       hs <- mapM intToProcessHandle toTerminate -- TODO make sure eCount always >= 0
       mapM_ terminateProcess hs -- TODO is SIGTERM really what we want?
       return p { mHandles = toKeep }
     LT -> do
       let n = eCount mEntry - length mHandles
-      is <- replicateM n $ spawn chan mEntry
+      is <- replicateM n $ spawn chan p
       return p { mHandles = is ++ mHandles }
 
 -- | Remove the process handle from the monitored process (if they match,
@@ -157,7 +158,8 @@ startMonitor state stateVar chan = do
         ++ pidPath ++ ")."
       writeFile pidPath $ show pid
 
-  monitor state stateVar chan
+  let state' = state { sProcesses = colorize $ sProcesses state }
+  monitor state' stateVar chan
 
 -- | Given new process specifications, continue the monitoring. The given MVar
 -- is used to report back the evolving state.
@@ -170,7 +172,7 @@ continueMonitor state@Sentry{..} entries stateVar chan = do
   let (walkingDeads, kept) = partitionEithers $
         map (continueProcess entries) sProcesses
       state' = state
-        { sProcesses = addEntries kept entries
+        { sProcesses = colorize $ addEntries kept entries
         , sReexecTime = Just t }
   mapM_ terminate walkingDeads
   monitor state' stateVar chan
@@ -178,14 +180,16 @@ continueMonitor state@Sentry{..} entries stateVar chan = do
 -- | Monitor the processes from the given application state.
 monitor :: Sentry -> MVar Sentry -> Chan Command -> IO ()
 monitor state stateVar chan = do
-  let state' = state { sProcesses = colorize $ sProcesses state }
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
   setupHUP chan
   setupINT chan
-  -- follow existing handles, if any (after a re-exec there can be some).
+  -- Open all needed ports.
+  ps <- mapM openPort $ sProcesses state
+  let state' = state { sProcesses = ps }
+  -- Follow existing handles, if any (after a re-exec there can be some).
   forM_ (sProcesses state') $
-    \p -> mapM_ (follow chan $ mEntry p) $ mHandles p
+    \p -> mapM_ (follow chan p) $ mHandles p
   writeChan chan UpdateProcesses
   processChan state' chan stateVar
 
@@ -312,7 +316,7 @@ initializeState specs = do
     { sExecutablePath = path
     , sStartTime = t
     , sReexecTime = Nothing
-    , sProcesses = map (flip MonitoredEntry []) specs
+    , sProcesses = map monitored specs
     }
 
 -- | Save the application state to disk (normally done just before re-exec'ing
@@ -352,7 +356,7 @@ continueProcess :: [Entry] -> MonitoredEntry ->
   Either MonitoredEntry MonitoredEntry
 continueProcess entries m@MonitoredEntry{..} =
   case lookupProcess mEntry entries of
-    Just p -> Right $ MonitoredEntry p mHandles
+    Just p -> Right $ (monitored p) { mHandles = mHandles }
     Nothing -> Left m
 
 -- | Add entries to a list of monitored entries if they are not already in
@@ -364,7 +368,7 @@ addEntries = foldl' addEntry
 -- there.
 addEntry :: [MonitoredEntry] -> Entry -> [MonitoredEntry]
 -- Order doesn't matter as it will be a Map anyway.
-addEntry es e = if present then es else MonitoredEntry e [] : es
+addEntry es e = if present then es else monitored e : es
   where present = isJust $ lookupProcess e $ map mEntry es
 
 -- | Try to find a matching process in the given list.
@@ -384,29 +388,37 @@ sameEntries p1 p2 = eType p1 == eType p2
   && eArguments p1 == eArguments p2
 
 ------------------------------------------------------------------------------
+-- Networking
+------------------------------------------------------------------------------
+
+-- | Open the requested port if any, and return a modified monitored entry
+-- with the corresponding file descriptor.
+openPort :: MonitoredEntry -> IO MonitoredEntry
+openPort m@MonitoredEntry{..} = case ePort mEntry of
+  Nothing -> return m
+  Just _ -> error "TODO: openPort"
+
+------------------------------------------------------------------------------
 -- Logging
 ------------------------------------------------------------------------------
 
 colorize :: [MonitoredEntry] -> [MonitoredEntry]
-colorize entries = zipWith f entries $ cycle $ map Just
+colorize entries = zipWith f entries $ cycle
   [Red, Blue, Green, Yellow, Magenta, Cyan, White]
-  where f e c = e { mEntry = (mEntry e) { eColor = c } }
+  where f e c = e { mColor = c }
 
-colorized :: Entry -> String -> String
-colorized Entry{..} str =
-  case eColor of
-    Nothing -> pad str
-    Just c ->
-      setSGRCode [SetColor Foreground Dull c] ++  pad str ++ setSGRCode []
+colorized :: MonitoredEntry -> String -> String
+colorized MonitoredEntry{..} str =
+  setSGRCode [SetColor Foreground Dull mColor] ++  pad str ++ setSGRCode []
 
 -- TODO non-hardcoded constant
 pad :: String -> String
 pad s = s ++ replicate (25 - length s) ' '
 
-logP :: Entry -> Int -> String -> IO ()
-logP p@Entry{..} i s = do
+logP :: MonitoredEntry -> Int -> String -> IO ()
+logP p@MonitoredEntry{..} i s = do
   ts <- getTimeString
-  putStrLn $ colorized p (ts ++ " " ++ eType ++ "." ++ show i) ++ s
+  putStrLn $ colorized p (ts ++ " " ++ eType mEntry ++ "." ++ show i) ++ s
 
 ------------------------------------------------------------------------------
 -- Signals
@@ -463,7 +475,7 @@ getTimeString = do
   return $ formatCalendarTime defaultTimeLocale "%H:%M:%S" ct
 
 -- | Copy two handles to stdout. It is better if the handles are line-buffered.
-pipeToStdout :: Entry -> Int -> Handle -> Handle -> IO ()
+pipeToStdout :: MonitoredEntry -> Int -> Handle -> Handle -> IO ()
 pipeToStdout p i h1 h2 = do
   eof1 <- hIsEOF h1
   eof2 <- hIsEOF h2

@@ -29,9 +29,10 @@ data Entry = Entry
   { eType :: ProcessType -- ^ Process type.
   , eCommand :: String -- ^ Command.
   , eArguments :: [String] -- ^ Command arguments.
-  , eDelay :: Int -- ^ Dealy before re-starting a process, in milliseconds.
+  , eDelay :: Int -- ^ Delay before re-starting a process, in milliseconds.
   , eCount :: Int -- ^ Number of requested processes of this type.
-  , eColor :: Maybe Color
+  , ePort :: Maybe (String, Int)
+    -- ^ Port to listen on, with the command's option to provide it.
   }
   deriving (Data, Typeable)
   -- Data is only needed so we can have [Entry]
@@ -39,7 +40,9 @@ data Entry = Entry
 
 showEntry :: Entry -> String
 showEntry Entry{..} = show eCount ++ " " ++ eType ++ ": " ++ eCommand ++ " "
-  ++ intercalate " " eArguments ++ "  -- " ++ show eDelay ++ "ms."
+  ++ intercalate " " (eArguments ++ maybe [] port ePort)
+  ++ "  -- " ++ show eDelay ++ "ms."
+  where port (option, n) = ["--" ++ option, show n]
 
 deriving instance Data Color
 deriving instance Typeable Color
@@ -56,17 +59,45 @@ deriveSafeCopy 0 'base ''Color
 -- `sleep 3` will be kept running, restarting it after 1000 milliseconds if
 -- necessary. The last value is the number of instances to run, in the example
 -- just one.
-entry :: ProcessType -> String -> [String] -> Int -> Int -> Entry
-entry typ cmd args delay count =
-  Entry typ cmd args delay count Nothing
+entry :: ProcessType
+      -> String
+      -> [String]
+      -> Int
+      -> Int
+      -> Maybe (String, Int)
+      -> Entry
+entry = Entry
+
+-- | Return the command to run a process specification. If a port is needed,
+-- it is assumed the file descriptor is available.
+command :: MonitoredEntry -> (String, [String])
+command MonitoredEntry{..} = case (ePort mEntry, mFD) of
+  (Nothing, Nothing) ->
+      (eCommand mEntry, eArguments mEntry)
+  (Just (opt, port), Just fd) ->
+      (eCommand mEntry, eArguments mEntry ++ ["--fd", show fd])
+    -- TODO the opt is ignored, so don't provide it in the spec?
+  _ -> error
+    "Mismatch between process specification and monitored entry state."
 
 data MonitoredEntry = MonitoredEntry
   { mEntry :: Entry -- ^ Process specification.
-  , mHandles :: [Int] -- ^ List of process handles running the process
-  -- specification (Int is used instead of ProcessHandle so we can
-  -- save/restore them with SafeCopy).
+  , mHandles :: [Int]
+  -- ^ List of process handles running the process specification
+  -- (Int is used instead of ProcessHandle so we can save/restore
+  -- them with SafeCopy).
+  , mColor :: Color
+  -- ^ Assigned color for logging info about this process
+  -- specification to the terminal.
+  , mFD :: Maybe Int
+  -- ^ Whether the port specified in `mEntry` was already open
+  -- by sentry or not. If it is open, this holds the file descriptor.
   }
   deriving Typeable
+
+-- | Helper function to turn an entry into a monitored entry.
+monitored :: Entry -> MonitoredEntry
+monitored e = MonitoredEntry e [] White Nothing
 
 -- | The application state can be serialized and saved to disk then restored
 -- when the process is reexec'd.
